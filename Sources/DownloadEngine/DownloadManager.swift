@@ -1,4 +1,6 @@
 import Foundation
+import UIKit
+import QuartzCore
 
 public final class DownloadManager: NSObject, URLSessionDownloadDelegate {
     public static let shared = DownloadManager()
@@ -6,15 +8,38 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate {
     public private(set) var items: [DownloadItem] = []
     private var activeTasks: [String: URLSessionDownloadTask] = [:]
     private var resumeDataMap: [String: Data] = [:]
+    private var lastProgressPostTime: [String: TimeInterval] = [:]
+    private var backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
 
     public var backgroundCompletionHandler: (() -> Void)?
 
-    private lazy var backgroundSession: URLSession = {
-        let config = URLSessionConfiguration.background(withIdentifier: "com.matnami.background-downloads")
-        config.isDiscretionary = false
-        config.sessionSendsLaunchEvents = true
+    private lazy var downloadSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 60.0
+        config.timeoutIntervalForResource = 86400.0 // 24 hours for large video files
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.httpMaximumConnectionsPerHost = 4
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }()
+
+    private func beginBackgroundTaskIfNeeded() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.backgroundTaskId == .invalid else { return }
+            self.backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "MatnamiDownload") { [weak self] in
+                self?.endBackgroundTask()
+            }
+        }
+    }
+
+    private func endBackgroundTask() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            if self.backgroundTaskId != .invalid {
+                UIApplication.shared.endBackgroundTask(self.backgroundTaskId)
+                self.backgroundTaskId = .invalid
+            }
+        }
+    }
 
     private let metadataFileURL: URL = {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -113,10 +138,12 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate {
         for (k, v) in videoSource.effectiveHeaders {
             request.setValue(v, forHTTPHeaderField: k)
         }
+        request.timeoutInterval = 60.0
 
-        let task = backgroundSession.downloadTask(with: request)
+        let task = downloadSession.downloadTask(with: request)
         task.taskDescription = episode.id
         activeTasks[episode.id] = task
+        beginBackgroundTaskIfNeeded()
         task.resume()
 
         NotificationCenter.default.post(name: .downloadStateChanged, object: episode.id)
@@ -131,6 +158,9 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate {
             }
             self.activeTasks.removeValue(forKey: id)
             self.updateItemState(id: id, state: .paused)
+            if self.activeTasks.isEmpty {
+                self.endBackgroundTask()
+            }
         }
     }
 
@@ -140,16 +170,21 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate {
 
         let task: URLSessionDownloadTask
         if let resumeData = resumeDataMap[id] {
-            task = backgroundSession.downloadTask(withResumeData: resumeData)
+            task = downloadSession.downloadTask(withResumeData: resumeData)
             resumeDataMap.removeValue(forKey: id)
         } else if let url = URL(string: item.streamURL) {
-            task = backgroundSession.downloadTask(with: URLRequest(url: url))
+            var req = URLRequest(url: url)
+            req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+            req.setValue("*/*", forHTTPHeaderField: "Accept")
+            req.timeoutInterval = 60.0
+            task = downloadSession.downloadTask(with: req)
         } else {
             return
         }
 
         task.taskDescription = id
         activeTasks[id] = task
+        beginBackgroundTaskIfNeeded()
         task.resume()
 
         updateItemState(id: id, state: .downloading)
@@ -162,6 +197,9 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate {
         }
         resumeDataMap.removeValue(forKey: id)
         updateItemState(id: id, state: .failed, errorMessage: "Download canceled")
+        if activeTasks.isEmpty {
+            endBackgroundTask()
+        }
     }
 
     public func deleteDownload(id: String) {
@@ -259,6 +297,9 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate {
             }
             updateItemState(id: episodeId, state: .completed)
             activeTasks.removeValue(forKey: episodeId)
+            if activeTasks.isEmpty {
+                endBackgroundTask()
+            }
 
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: .downloadCompleted, object: episodeId)
@@ -266,6 +307,9 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate {
         } catch {
             updateItemState(id: episodeId, state: .failed, errorMessage: error.localizedDescription)
             activeTasks.removeValue(forKey: episodeId)
+            if activeTasks.isEmpty {
+                endBackgroundTask()
+            }
         }
     }
 
@@ -278,23 +322,31 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate {
         items[idx].bytesDownloaded = totalBytesWritten
         items[idx].totalBytes = max(totalBytesExpectedToWrite, totalBytesWritten)
 
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(
-                name: .downloadProgress,
-                object: episodeId,
-                userInfo: [
-                    "episodeId": episodeId,
-                    "progress": progress,
-                    "bytesWritten": totalBytesWritten,
-                    "totalBytes": totalBytesExpectedToWrite
-                ]
-            )
+        let now = CACurrentMediaTime()
+        let lastTime = lastProgressPostTime[episodeId] ?? 0
+        if now - lastTime >= 0.25 || progress >= 1.0 {
+            lastProgressPostTime[episodeId] = now
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .downloadProgress,
+                    object: episodeId,
+                    userInfo: [
+                        "episodeId": episodeId,
+                        "progress": progress,
+                        "bytesWritten": totalBytesWritten,
+                        "totalBytes": totalBytesExpectedToWrite
+                    ]
+                )
+            }
         }
     }
 
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let episodeId = task.taskDescription else { return }
         activeTasks.removeValue(forKey: episodeId)
+        if activeTasks.isEmpty {
+            endBackgroundTask()
+        }
 
         if let error = error as NSError?, error.code != NSURLErrorCancelled {
             updateItemState(id: episodeId, state: .failed, errorMessage: error.localizedDescription)

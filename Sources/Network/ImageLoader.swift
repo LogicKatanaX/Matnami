@@ -46,12 +46,13 @@ public final class ImageLoader {
             return nil
         }
 
-        let proxiedURL = AnimeScraperEngine.proxiedURL(for: url)
-        var request = URLRequest(url: proxiedURL)
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15.0
         request.setValue(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             forHTTPHeaderField: "User-Agent"
         )
+        request.setValue("image/webp,image/apng,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
 
         let task = session.dataTask(with: request) { [weak self] data, _, error in
             guard let self = self, let data = data, error == nil else {

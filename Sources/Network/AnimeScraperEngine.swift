@@ -8,11 +8,25 @@ public final class AnimeScraperEngine {
     public static let proxyBase = "https://manga-proxy.santamcyber.workers.dev/?url="
 
     private let session: URLSession
+    private var sourceCache: [String: [VideoSource]] = [:]
+    private let cacheLock = NSLock()
+
+    public func cacheEpisodeSources(for episodeId: String, sources: [VideoSource]) {
+        cacheLock.lock()
+        sourceCache[episodeId] = sources
+        cacheLock.unlock()
+    }
+
+    public func getCachedEpisodeSources(for episodeId: String) -> [VideoSource]? {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        return sourceCache[episodeId]
+    }
 
     private init() {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 20.0
-        config.timeoutIntervalForResource = 30.0
+        config.timeoutIntervalForRequest = 45.0
+        config.timeoutIntervalForResource = 90.0
         self.session = URLSession(configuration: config)
     }
 
@@ -195,6 +209,16 @@ public final class AnimeScraperEngine {
                 }
             }
 
+            // Replace directory folder icon with verified high-res poster on CartoonsArea
+            if cover.contains("folder.gif") || cover.isEmpty {
+                if baseURL.host?.contains("cartoonsarea") == true {
+                    let letter = String(title.prefix(1)).uppercased()
+                    if let encTitle = title.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) {
+                        cover = "https://www.cartoonsarea.cc/USER-DATA/Images/Japanese/\(letter)/\(encTitle).jpg"
+                    }
+                }
+            }
+
             var score = ""
             if let scoreSel = source.scoreSelector, let sEl = try? card.select(scoreSel).first() {
                 score = (try? sEl.text()) ?? ""
@@ -254,6 +278,25 @@ public final class AnimeScraperEngine {
                             genres.append(text)
                         }
                     }
+                }
+
+                var detailCover = ""
+                if let posterEl = try? doc.select("img[src*='/Images/'], img[alt*='Poster'], img[src*='poster'], .poster img, .thumb img").first() {
+                    var rawSrc = (try? posterEl.attr("src")) ?? ""
+                    if rawSrc.isEmpty { rawSrc = (try? posterEl.attr("data-src")) ?? "" }
+                    rawSrc = rawSrc.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if rawSrc.hasPrefix("//") { rawSrc = "https:" + rawSrc }
+                    let encSrc = rawSrc.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? rawSrc
+                    if let absURL = URL(string: encSrc, relativeTo: url)?.absoluteString {
+                        detailCover = absURL
+                    }
+                }
+                let effectiveCover = (!detailCover.isEmpty) ? detailCover : anime.coverURL
+
+                // Pre-resolve direct video sources if present on this page
+                let preResolved = DirectMP4Resolver.shared.resolveFromHTML(html, pageURL: url)
+                if !preResolved.isEmpty {
+                    self.cacheEpisodeSources(for: "\(anime.id)_ep_1", sources: preResolved)
                 }
 
                 // Parse episodes
@@ -344,7 +387,7 @@ public final class AnimeScraperEngine {
                         let updatedAnime = Anime(
                             id: anime.id,
                             title: anime.title,
-                            coverURL: anime.coverURL,
+                            coverURL: effectiveCover,
                             synopsis: synopsis.isEmpty ? anime.synopsis : synopsis,
                             score: anime.score,
                             status: anime.status,
@@ -373,7 +416,7 @@ public final class AnimeScraperEngine {
                 let updatedAnime = Anime(
                     id: anime.id,
                     title: anime.title,
-                    coverURL: anime.coverURL,
+                    coverURL: effectiveCover,
                     synopsis: synopsis.isEmpty ? anime.synopsis : synopsis,
                     score: anime.score,
                     status: anime.status,
@@ -395,6 +438,11 @@ public final class AnimeScraperEngine {
 
     // MARK: - 4. Fetch Episode Video Sources & Resolvers
     public func fetchEpisodeSources(source: AnimeSourceConfig, episode: Episode, completion: @escaping (Result<[VideoSource], Error>) -> Void) {
+        if let cached = getCachedEpisodeSources(for: episode.id), !cached.isEmpty {
+            DispatchQueue.main.async { completion(.success(cached)) }
+            return
+        }
+
         guard let url = URL(string: episode.episodeURL) else {
             completion(.failure(NSError(domain: "AnimeScraper", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid episode URL"])))
             return
@@ -417,9 +465,13 @@ public final class AnimeScraperEngine {
             var videoSources: [VideoSource] = []
             let lock = NSLock()
 
-            // 1. Direct MP4 and mirror resolution from the episode page (e.g. CartoonsArea direct MP4, Pixeldrain)
+            // 1. Direct MP4 and mirror resolution from the episode page (e.g. HentaiFreak direct source tag, Pixeldrain)
             let directSources = DirectMP4Resolver.shared.resolveFromHTML(html, pageURL: url)
-            videoSources.append(contentsOf: directSources)
+            if !directSources.isEmpty {
+                self.cacheEpisodeSources(for: episode.id, sources: directSources)
+                DispatchQueue.main.async { completion(.success(directSources)) }
+                return
+            }
 
             guard let doc = try? SwiftSoup.parse(html, episode.episodeURL) else {
                 DispatchQueue.main.async { completion(.success(videoSources)) }
@@ -443,7 +495,11 @@ public final class AnimeScraperEngine {
                                 return
                             }
                             let resolved = DirectMP4Resolver.shared.resolveFromHTML(mHtml, pageURL: mediaURL)
-                            DispatchQueue.main.async { completion(.success(resolved.isEmpty ? videoSources : resolved)) }
+                            let finalSources = resolved.isEmpty ? videoSources : resolved
+                            if !finalSources.isEmpty {
+                                self.cacheEpisodeSources(for: episode.id, sources: finalSources)
+                            }
+                            DispatchQueue.main.async { completion(.success(finalSources)) }
                         }.resume()
                         return
                     }

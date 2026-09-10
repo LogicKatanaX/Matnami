@@ -130,13 +130,27 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
     }
 
     private func setupObservers() {
-        NotificationCenter.default.addObserver(self, selector: #selector(handleDownloadNotification), name: .downloadProgress, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(handleDownloadNotification), name: .downloadCompleted, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(handleDownloadNotification), name: .downloadStateChanged, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(handleDownloadNotification), name: .appDidReset, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleProgressNotification(_:)), name: .downloadProgress, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleStateChangedNotification), name: .downloadCompleted, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleStateChangedNotification), name: .downloadStateChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleStateChangedNotification), name: .appDidReset, object: nil)
     }
 
-    @objc private func handleDownloadNotification() {
+    @objc private func handleProgressNotification(_ notification: Notification) {
+        guard let episodeId = notification.object as? String,
+              let row = episodes.firstIndex(where: { $0.id == episodeId }) else {
+            return
+        }
+        let indexPath = IndexPath(row: row, section: 0)
+        if let cell = tableView.cellForRow(at: indexPath) as? EpisodeCell {
+            let ep = episodes[row]
+            let item = DownloadManager.shared.item(for: ep.id)
+            cell.configure(with: ep, downloadItem: item)
+        }
+    }
+
+    @objc private func handleStateChangedNotification() {
+        updateNavBarButtons()
         tableView.reloadData()
     }
 
