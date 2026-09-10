@@ -163,12 +163,6 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
         }
     }
 
-    // MARK: - UITableViewDataSource
-    public override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        updateNavBarButtons()
-        tableView.reloadData()
-    }
 
     private func updateNavBarButtons() {
         let hasDownloads = DownloadManager.shared.items.contains { $0.animeId == anime.id }

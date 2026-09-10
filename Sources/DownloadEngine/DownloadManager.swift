@@ -86,7 +86,7 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate {
             return
         }
 
-        var item = DownloadItem(
+        let item = DownloadItem(
             id: episode.id,
             episodeId: episode.id,
             animeId: anime.id,

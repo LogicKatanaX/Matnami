@@ -51,7 +51,6 @@ public final class TabBarController: UITabBarController {
     private func createTabIcon(text: String) -> UIImage? {
         let size = CGSize(width: 30, height: 30)
         UIGraphicsBeginImageContextWithOptions(size, false, 0.0)
-        let rect = CGRect(origin: .zero, size: size)
         let font = UIFont.systemFont(ofSize: 22)
         let attributes: [NSAttributedString.Key: Any] = [.font: font]
         let textSize = (text as NSString).size(withAttributes: attributes)

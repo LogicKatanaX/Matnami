@@ -427,7 +427,7 @@ public final class VideoPlayerViewController: UIViewController {
 
     // MARK: - Lockscreen & Control Center Now Playing
     private func setupNowPlaying() {
-        var nowPlayingInfo: [String: Any] = [
+        let nowPlayingInfo: [String: Any] = [
             MPMediaItemPropertyTitle: episodeTitle,
             MPMediaItemPropertyArtist: animeTitle
         ]
