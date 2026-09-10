@@ -18,5 +18,25 @@
     "serverItemSelector": "a[href*='.mp4'], a[href*='/USER-DATA/']",
     "ajaxAction": null,
     "useProxy": false
+  },
+  {
+    "id": "hentaifreak",
+    "name": "HentaiFreak",
+    "baseURL": "https://hentaifreak.org",
+    "catalogPattern": "https://hentaifreak.org/hentai/page/{page}/",
+    "searchPattern": "https://hentaifreak.org/?s={query}",
+    "cardSelector": "article.type-post, article.post",
+    "linkSelector": "a[href*='-video/'], a.js-pop, a[href]",
+    "titleSelector": "h2.entry-title a, h2, a[title]",
+    "coverSelector": "img",
+    "scoreSelector": null,
+    "synopsisSelector": ".entry-content, .entry-summary, p",
+    "episodeListSelector": "a[href*='-episode-'], a[href*='-hentai-video/']",
+    "episodeLinkSelector": "a",
+    "episodeTitleSelector": "a",
+    "playerIframeSelector": "#pembed iframe, .player-embed iframe, iframe[src]",
+    "serverItemSelector": "a[href*='.mp4'], source[src*='.mp4']",
+    "ajaxAction": null,
+    "useProxy": false
   }
 ]

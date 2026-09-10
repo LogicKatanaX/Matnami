@@ -223,6 +223,17 @@ public final class AnimeScraperEngine {
                     ))
                 }
 
+                if episodes.isEmpty {
+                    episodes.append(Episode(
+                        id: "\(anime.id)_ep_1",
+                        animeId: anime.id,
+                        number: "1",
+                        title: anime.title,
+                        episodeURL: anime.detailURL,
+                        sourceId: source.id
+                    ))
+                }
+
                 let updatedAnime = Anime(
                     id: anime.id,
                     title: anime.title,
