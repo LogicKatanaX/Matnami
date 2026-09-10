@@ -65,7 +65,7 @@ public final class SourceManager {
                     playerIframeSelector: nil,
                     serverItemSelector: "source[src], video[src], a[href*='.mp4']",
                     ajaxAction: nil,
-                    useProxy: false
+                    useProxy: true
                 )
             ]
         }

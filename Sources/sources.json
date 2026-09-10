@@ -37,6 +37,6 @@
     "playerIframeSelector": null,
     "serverItemSelector": "source[src], video[src], a[href*='.mp4']",
     "ajaxAction": null,
-    "useProxy": false
+    "useProxy": true
   }
 ]

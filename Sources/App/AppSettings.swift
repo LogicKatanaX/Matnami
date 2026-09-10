@@ -11,8 +11,8 @@ public final class AppSettings {
     private let keyProxyUrl = "com.matnami.pref_proxy_url"
     private let keyProxyStreams = "com.matnami.pref_proxy_streams"
 
-    /// Default Cloudflare Worker template endpoint (user customizable)
-    public static let defaultProxyBase = "https://manga-proxy.santamcyber.workers.dev/?url="
+    /// Default Cloudflare Worker endpoint (verified active and online)
+    public static let defaultProxyBase = "https://animemovie.santamrelax.workers.dev/?url="
 
     private init() {}
 
@@ -30,9 +30,12 @@ public final class AppSettings {
         }
     }
 
-    /// Global Cloudflare Worker reverse proxy toggle (Default: false to prioritize fast direct connection)
+    /// Global Cloudflare Worker reverse proxy toggle (Default: true with active edge worker)
     public var useProxyByDefault: Bool {
         get {
+            if defaults.object(forKey: keyProxy) == nil {
+                return true
+            }
             return defaults.bool(forKey: keyProxy)
         }
         set {
@@ -40,9 +43,12 @@ public final class AppSettings {
         }
     }
 
-    /// Whether to route video streams and downloads through the edge proxy (Useful for ISP blocked hosts)
+    /// Whether to route video streams and downloads through the edge proxy (Default: true for ISP bypass)
     public var useProxyForStreams: Bool {
         get {
+            if defaults.object(forKey: keyProxyStreams) == nil {
+                return true
+            }
             return defaults.bool(forKey: keyProxyStreams)
         }
         set {
@@ -71,10 +77,9 @@ public final class AppSettings {
         }
     }
 
-    /// True if user has configured an active proxy endpoint
+    /// True if an active proxy endpoint is available
     public var isCustomProxyConfigured: Bool {
-        let current = defaults.string(forKey: keyProxyUrl) ?? ""
-        return !current.isEmpty && current.contains("http")
+        return !proxyBaseUrl.isEmpty && proxyBaseUrl.contains("http")
     }
 
     /// Resets all user settings back to initial factory defaults
