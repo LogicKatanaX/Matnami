@@ -57,3 +57,45 @@ class SourceManager:
         except Exception:
             return False
 
+    def publish_ota(self, commit_message: str = "chore(sources): update anime sources OTA") -> tuple:
+        """Commits Sources/sources.json and pushes to origin main so iPads update Over-The-Air."""
+        import subprocess
+        try:
+            repo_dir = self.path.parent.parent
+            # 1. git add Sources/sources.json
+            p1 = subprocess.run(["git", "add", "Sources/sources.json"], capture_output=True, text=True, cwd=repo_dir)
+            if p1.returncode != 0:
+                return False, f"Git add failed: {p1.stderr.strip()}"
+
+            # 2. git commit
+            p2 = subprocess.run(["git", "commit", "-m", commit_message], capture_output=True, text=True, cwd=repo_dir)
+            output = (p2.stdout + p2.stderr).lower()
+            if p2.returncode != 0 and "nothing to commit" not in output:
+                return False, f"Git commit failed: {p2.stderr.strip()}"
+
+            # 3. git push origin main
+            p3 = subprocess.run(["git", "push", "origin", "main"], capture_output=True, text=True, cwd=repo_dir)
+            if p3.returncode != 0:
+                return False, f"Git push failed: {p3.stderr.strip()}"
+
+            return True, "Successfully deployed sources.json to GitHub! All connected iPad Air devices will update Over-The-Air."
+        except Exception as e:
+            return False, f"Exception during OTA publish: {str(e)}"
+
+    def check_remote_ota(self) -> tuple:
+        """Fetches the live OTA JSON from GitHub and compares with local sources."""
+        import urllib.request
+        from .config import OTA_ENDPOINT_URL
+
+        try:
+            req = urllib.request.Request(OTA_ENDPOINT_URL, headers={"User-Agent": "Matnami-OTA-Client"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                if resp.status == 200:
+                    remote_data = json.loads(resp.read().decode("utf-8"))
+                    local_data = self.list_sources()
+                    return True, "Live OTA endpoint reachable", remote_data, local_data
+                else:
+                    return False, f"HTTP status {resp.status}", [], []
+        except Exception as e:
+            return False, f"Could not contact OTA endpoint: {str(e)}", [], []
+

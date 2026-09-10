@@ -29,6 +29,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         win.makeKeyAndVisible()
         self.window = win
 
+        // 4. Background OTA sync for latest anime sources
+        DispatchQueue.global(qos: .utility).async {
+            SourceManager.shared.syncOTA(from: AppSettings.shared.customOTAUrl) { result in
+                switch result {
+                case .success(let count):
+                    print("AppDelegate: OTA sources successfully synced (\(count) active sources).")
+                case .failure(let error):
+                    print("AppDelegate: OTA sync skipped/offline: \(error.localizedDescription)")
+                }
+            }
+        }
+
         return true
     }
 

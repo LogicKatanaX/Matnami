@@ -154,6 +154,41 @@ def cmd_remove(sm: SourceManager, source_id: str):
     else:
         console.print(f"[bold red]ERROR:[/] Source '{source_id}' not found.")
 
+def cmd_ota(sm: SourceManager):
+    console.print("\n[bold cyan]─── Over-The-Air (OTA) Source Synchronization ───[/bold cyan]")
+    console.print(f"[dim]Live Endpoint: https://raw.githubusercontent.com/LogicKatanaX/Matnami/main/Sources/sources.json[/dim]\n")
+
+    console.print("[yellow]Checking live GitHub OTA status...[/yellow]")
+    ok, msg, remote_data, local_data = sm.check_remote_ota()
+    if ok:
+        console.print(f"[green][PASS][/green] Remote OTA is live! Found [bold cyan]{len(remote_data)}[/bold cyan] sources on GitHub.")
+        console.print(f"Local repository has [bold cyan]{len(local_data)}[/bold cyan] sources.")
+        remote_ids = [s.get("id") for s in remote_data]
+        local_ids = [s.get("id") for s in local_data]
+        diff = set(local_ids) - set(remote_ids)
+        if diff:
+            console.print(f"[bold yellow]Unpublished local sources:[/] {', '.join(diff)}")
+        elif len(remote_data) == len(local_data):
+            console.print("[bold green]Local sources and Remote OTA are in 100% sync![/bold green]")
+    else:
+        console.print(f"[bold red][FAIL][/bold red] {msg}")
+
+    console.print("\n[bold white]OTA Actions:[/bold white]")
+    console.print("  [1] Publish / Push local sources to GitHub (Instantly updates all iPads)")
+    console.print("  [2] Re-check remote endpoint")
+    console.print("  [0] Back to Main Menu")
+
+    sub_choice = console.input("\n[bold yellow]Select option [0-2]: [/bold yellow]").strip()
+    if sub_choice == "1":
+        msg_input = console.input("[bold white]Commit message (press Enter for default): [/bold white]").strip()
+        commit_msg = msg_input if msg_input else "chore(sources): update anime sources catalog OTA"
+        console.print("[cyan]Deploying to GitHub...[/cyan]")
+        success, res_msg = sm.publish_ota(commit_msg)
+        if success:
+            console.print(f"[bold green]SUCCESS:[/] {res_msg}")
+        else:
+            console.print(f"[bold red]FAILED:[/] {res_msg}")
+
 def interactive_menu():
     print_banner()
     sm = SourceManager()
@@ -168,9 +203,10 @@ def interactive_menu():
         console.print("  [5] Batch Audit from Text File")
         console.print("  [6] Add New Anime Website (Audit + Auto-Save to sources.json)")
         console.print("  [7] Remove an Anime Source")
+        console.print("  [8] Over-The-Air (OTA) Manager (Deploy sources to iPad)")
         console.print("  [0] Exit")
 
-        choice = console.input("\n[bold yellow]Select an option [0-7]: [/bold yellow]").strip()
+        choice = console.input("\n[bold yellow]Select an option [0-8]: [/bold yellow]").strip()
 
         if choice == "1":
             cmd_list(sm)
@@ -207,6 +243,8 @@ def interactive_menu():
             s_id = console.input("[bold white]Enter Source ID to remove: [/bold white]").strip()
             if s_id:
                 cmd_remove(sm, s_id)
+        elif choice == "8":
+            cmd_ota(sm)
         elif choice == "0":
             console.print("[bold green]Goodbye![/bold green]")
             break
@@ -235,6 +273,8 @@ def main():
     remove_parser = subparsers.add_parser("remove", help="Remove a source from sources.json")
     remove_parser.add_argument("id", help="Source ID to remove")
 
+    subparsers.add_parser("ota", help="Manage Over-The-Air source deployment")
+
     args = parser.parse_args()
 
     sm = SourceManager()
@@ -254,6 +294,8 @@ def main():
         cmd_add(auditor, sm, args.url)
     elif args.command == "remove":
         cmd_remove(sm, args.id)
+    elif args.command == "ota":
+        cmd_ota(sm)
     else:
         interactive_menu()
 

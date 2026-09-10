@@ -12,6 +12,9 @@ IOS12_UA = "Mozilla/5.0 (iPad; CPU OS 12_5_7 like Mac OS X) AppleWebKit/605.1.15
 # Edge Reverse Proxy
 PROXIES_BASE = "https://manga-proxy.santamcyber.workers.dev/?url="
 
+# Over-The-Air (OTA) Endpoint
+OTA_ENDPOINT_URL = "https://raw.githubusercontent.com/LogicKatanaX/Matnami/main/Sources/sources.json"
+
 # Request Timeouts (seconds)
 TIMEOUT_CONNECT = 10
 TIMEOUT_READ = 25
