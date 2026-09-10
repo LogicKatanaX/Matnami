@@ -18,6 +18,10 @@ public final class DirectMP4Resolver {
         if path.contains("USER-DATA") || path.contains(".mp4") {
             return true
         }
+        let abs = url.absoluteString.lowercased()
+        if abs.contains(".mp4") || abs.contains("user-data") {
+            return true
+        }
         let host = url.host?.lowercased() ?? ""
         if host.contains("wibufile.com") || host.contains("blogger.com") || host.contains("googleusercontent.com") {
             return true
@@ -32,6 +36,7 @@ public final class DirectMP4Resolver {
         guard let doc = try? SwiftSoup.parse(html, pageURL.absoluteString) else {
             return sources
         }
+        try? doc.select("noscript").remove()
 
         // 1. Direct <source> or <video> tags
         if let videoElements = try? doc.select("video, source") {
@@ -40,14 +45,18 @@ public final class DirectMP4Resolver {
                 if src.isEmpty {
                     src = (try? el.attr("data-src")) ?? ""
                 }
-                guard !src.isEmpty, let streamURL = URL(string: src, relativeTo: pageURL)?.absoluteURL else {
+                var safeSrc = src.trimmingCharacters(in: .whitespacesAndNewlines)
+                if safeSrc.isEmpty { continue }
+                if safeSrc.hasPrefix("//") { safeSrc = "https:" + safeSrc }
+                let encodedSrc = safeSrc.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? safeSrc
+                guard let streamURL = URL(string: encodedSrc, relativeTo: pageURL)?.absoluteURL else {
                     continue
                 }
 
                 let ext = streamURL.pathExtension.lowercased()
-                let format: VideoFormat = (ext == "m3u8" || src.contains(".m3u8")) ? .hls : .mp4
+                let format: VideoFormat = (ext == "m3u8" || safeSrc.contains(".m3u8")) ? .hls : .mp4
                 let label = (try? el.attr("label")) ?? (try? el.attr("title")) ?? "Direct"
-                let quality = parseQuality(from: label + " " + src)
+                let quality = parseQuality(from: label + " " + safeSrc)
 
                 sources.append(VideoSource(
                     serverName: "Direct (\(label))",
@@ -69,7 +78,11 @@ public final class DirectMP4Resolver {
             for link in linkElements.array() {
                 let href = (try? link.attr("href")) ?? ""
                 let text = (try? link.text()) ?? ""
-                guard let targetURL = URL(string: href, relativeTo: pageURL)?.absoluteURL else { continue }
+                var safeHref = href.trimmingCharacters(in: .whitespacesAndNewlines)
+                if safeHref.isEmpty { continue }
+                if safeHref.hasPrefix("//") { safeHref = "https:" + safeHref }
+                let encodedHref = safeHref.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? safeHref
+                guard let targetURL = URL(string: encodedHref, relativeTo: pageURL)?.absoluteURL else { continue }
                 let host = targetURL.host?.lowercased() ?? ""
 
                 var streamURL = targetURL
@@ -93,7 +106,7 @@ public final class DirectMP4Resolver {
                 }
 
                 let parentText = (try? link.parent()?.text()) ?? ""
-                let quality = parseQuality(from: parentText + " " + text + " " + href)
+                let quality = parseQuality(from: parentText + " " + text + " " + safeHref)
                 let name = host.replacingOccurrences(of: "www.", with: "").capitalized
 
                 sources.append(VideoSource(

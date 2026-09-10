@@ -6,7 +6,7 @@ public final class SourceManager {
     public private(set) var sources: [AnimeSourceConfig] = []
     public var activeSource: AnimeSourceConfig?
 
-    private let userDefaultsKey = "com.matnami.saved_sources"
+    private let userDefaultsKey = "com.matnami.saved_sources_v2"
     private let activeSourceIdKey = "com.matnami.active_source_id"
 
     private init() {
@@ -25,7 +25,7 @@ public final class SourceManager {
             // 2. Fallback to bundled sources.json
             self.sources = bundleList
         } else {
-            // 3. Fallback hardcoded defaults (CartoonsArea Japanese Subbed & English Dubbed)
+            // 3. Fallback hardcoded defaults (CartoonsArea & HentaiFreak)
             self.sources = [
                 AnimeSourceConfig(
                     id: "cartoonsarea",
@@ -38,12 +38,32 @@ public final class SourceManager {
                     titleSelector: "h2, h3, a",
                     coverSelector: "img",
                     scoreSelector: nil,
-                    synopsisSelector: ".desc, p",
+                    synopsisSelector: ".desc, .description, .storyline",
                     episodeListSelector: "a[href*='Season-'], a[href*='Episode-'], a[href*='-Video/']",
                     episodeLinkSelector: "a",
                     episodeTitleSelector: "a",
                     playerIframeSelector: nil,
                     serverItemSelector: "a[href*='.mp4'], a[href*='/USER-DATA/']",
+                    ajaxAction: nil,
+                    useProxy: false
+                ),
+                AnimeSourceConfig(
+                    id: "hentaifreak",
+                    name: "HentaiFreak",
+                    baseURL: "https://hentaifreak.org",
+                    catalogPattern: "https://hentaifreak.org/hentai/",
+                    searchPattern: "https://hentaifreak.org/?s={query}",
+                    cardSelector: ".post, article.post",
+                    linkSelector: "a[href*='-video/'], a[href]",
+                    titleSelector: "h2 a, a[rel='bookmark'], a[title], h2",
+                    coverSelector: "img",
+                    scoreSelector: nil,
+                    synopsisSelector: ".entry-content p, .desc",
+                    episodeListSelector: "video, source, a[href*='.mp4']",
+                    episodeLinkSelector: "a",
+                    episodeTitleSelector: "a",
+                    playerIframeSelector: nil,
+                    serverItemSelector: "source[src], video[src], a[href*='.mp4']",
                     ajaxAction: nil,
                     useProxy: false
                 )

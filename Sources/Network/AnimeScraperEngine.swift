@@ -122,25 +122,77 @@ public final class AnimeScraperEngine {
         var results: [Anime] = []
 
         for card in cards.array() {
-            var linkEl = try? card.select(source.linkSelector).first()
-            if let el = linkEl, let href = try? el.attr("href"), href.contains("/genre/") || href.contains("/tag/") {
-                if let betterLink = try? card.select("a[href*='/anime/'], a[href*='/watch/'], a[href*='/series/'], a[href*='-Videos/'], .animposx a").first() {
+            var linkEl = (card.tagName() == "a") ? card : (try? card.select(source.linkSelector).first())
+            if let el = linkEl, let href = try? el.attr("href"), href.contains("/genre/") || href.contains("/tag/") || href.contains("/release/") {
+                if let betterLink = try? card.select("a[href*='/anime/'], a[href*='/watch/'], a[href*='/series/'], a[href*='-Videos/'], a[href*='-video/'], a[href*='-episode-'], .animposx a").first() {
                     linkEl = betterLink
                 }
+            }
+            if linkEl == nil {
+                linkEl = (card.tagName() == "a") ? card : (try? card.select("a[href]").first())
             }
 
             let titleEl = try? card.select(source.titleSelector).first()
             let coverEl = try? card.select(source.coverSelector).first()
 
-            guard let rawHref = try? linkEl?.attr("href"), !rawHref.isEmpty,
-                  let detailURL = URL(string: rawHref, relativeTo: baseURL)?.absoluteString else {
+            guard let rawHref = try? linkEl?.attr("href"), !rawHref.isEmpty else {
+                continue
+            }
+            var cleanHref = rawHref.trimmingCharacters(in: .whitespacesAndNewlines)
+            if cleanHref.hasPrefix("//") { cleanHref = "https:" + cleanHref }
+            let encodedHref = cleanHref.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? cleanHref
+            guard let detailURL = URL(string: encodedHref, relativeTo: baseURL)?.absoluteString else {
                 continue
             }
 
-            let title = (try? titleEl?.text())?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Unknown Anime"
+            // Filter out external sponsored ad cards (e.g. ad networks, jerkdolls, adtng)
+            if let baseHost = baseURL.host?.replacingOccurrences(of: "www.", with: "").lowercased(),
+               let detailHost = URL(string: detailURL)?.host?.replacingOccurrences(of: "www.", with: "").lowercased(),
+               !detailHost.isEmpty && !baseHost.isEmpty && !detailHost.contains(baseHost) && !baseHost.contains(detailHost) {
+                continue
+            }
+
+            var title = ""
+            if let tEl = titleEl {
+                let t = (try? tEl.text())?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !t.isEmpty {
+                    title = t
+                } else if let attrT = try? tEl.attr("title"), !attrT.isEmpty {
+                    title = attrT
+                }
+            }
+            if title.isEmpty {
+                if let aWithTitle = try? card.select("a[title]").first(),
+                   let attrT = try? aWithTitle.attr("title"), !attrT.isEmpty {
+                    title = attrT
+                }
+            }
+            if title.isEmpty {
+                title = (card.tagName() == "a") ? (try? card.text())?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Unknown Anime" : "Unknown Anime"
+            }
+            if title.lowercased() == "ad" || title.isEmpty {
+                continue
+            }
+
             var cover = (try? coverEl?.attr("src")) ?? ""
             if cover.isEmpty || cover.contains("data:image") {
                 cover = (try? coverEl?.attr("data-src")) ?? (try? coverEl?.attr("data-lazy-src")) ?? ""
+            }
+            if cover.isEmpty {
+                if let styleEl = try? card.select("[style*='background-image']").first(),
+                   let style = try? styleEl.attr("style"),
+                   let range1 = style.range(of: "url("),
+                   let range2 = style[range1.upperBound...].range(of: ")") {
+                    let rawUrl = String(style[range1.upperBound..<range2.lowerBound]).trimmingCharacters(in: CharacterSet(charactersIn: "\"' "))
+                    cover = rawUrl
+                }
+            }
+            if !cover.isEmpty {
+                if cover.hasPrefix("//") {
+                    cover = "https:" + cover
+                } else if let absCover = URL(string: cover, relativeTo: baseURL)?.absoluteString {
+                    cover = absCover
+                }
             }
 
             var score = ""
@@ -170,7 +222,8 @@ public final class AnimeScraperEngine {
         }
 
         let request = makeURLRequest(url: url, useProxy: source.useProxy)
-        session.dataTask(with: request) { data, _, error in
+        session.dataTask(with: request) { [weak self] data, _, error in
+            guard let self = self else { return }
             if let error = error {
                 DispatchQueue.main.async { completion(.failure(error)) }
                 return
@@ -184,9 +237,14 @@ public final class AnimeScraperEngine {
 
             do {
                 let doc = try SwiftSoup.parse(html, anime.detailURL)
+                try? doc.select("noscript").remove()
+
                 var synopsis = ""
                 if let synSel = source.synopsisSelector, let synEl = try? doc.select(synSel).first() {
-                    synopsis = (try? synEl.text())?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let rawSyn = (try? synEl.text())?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    if !rawSyn.lowercased().contains("javascript") && !rawSyn.lowercased().contains("bitte") {
+                        synopsis = rawSyn
+                    }
                 }
 
                 var genres: [String] = []
@@ -206,8 +264,13 @@ public final class AnimeScraperEngine {
                     let linkEl = try? item.select(source.episodeLinkSelector).first()
                     let titleEl = try? item.select(source.episodeTitleSelector).first()
 
-                    guard let rawHref = try? linkEl?.attr("href"), !rawHref.isEmpty,
-                          let epURL = URL(string: rawHref, relativeTo: url)?.absoluteString else {
+                    guard let rawHref = try? linkEl?.attr("href"), !rawHref.isEmpty else {
+                        continue
+                    }
+                    var cleanHref = rawHref.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if cleanHref.hasPrefix("//") { cleanHref = "https:" + cleanHref }
+                    let encodedHref = cleanHref.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? cleanHref
+                    guard let epURL = URL(string: encodedHref, relativeTo: url)?.absoluteString else {
                         continue
                     }
 
@@ -221,6 +284,79 @@ public final class AnimeScraperEngine {
                         episodeURL: epURL,
                         sourceId: source.id
                     ))
+                }
+
+                // Check if the parsed links are Season directories (e.g. CartoonsArea multi-level)
+                let seasonLinks = episodes.filter { $0.episodeURL.contains("Season") || $0.title.lowercased().contains("season") }
+                if !seasonLinks.isEmpty {
+                    let group = DispatchGroup()
+                    var realEpisodes: [Episode] = []
+                    let lock = NSLock()
+
+                    for seasonEp in seasonLinks {
+                        guard let seasonURL = URL(string: seasonEp.episodeURL) else { continue }
+                        group.enter()
+                        let req = self.makeURLRequest(url: seasonURL, useProxy: source.useProxy)
+                        self.session.dataTask(with: req) { sData, _, _ in
+                            defer { group.leave() }
+                            guard let sData = sData,
+                                  let sHtml = String(data: sData, encoding: .utf8) ?? String(data: sData, encoding: .ascii),
+                                  let sDoc = try? SwiftSoup.parse(sHtml, seasonEp.episodeURL) else { return }
+                            try? sDoc.select("noscript").remove()
+                            let epEls = (try? sDoc.select(source.episodeListSelector)) ?? Elements()
+                            var seasonSubEpisodes: [Episode] = []
+
+                            for subItem in epEls.array() {
+                                let subLink = try? subItem.select(source.episodeLinkSelector).first()
+                                let subTitleEl = try? subItem.select(source.episodeTitleSelector).first()
+                                guard var subHref = try? subLink?.attr("href"), !subHref.isEmpty else { continue }
+                                subHref = subHref.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if subHref.hasPrefix("//") { subHref = "https:" + subHref }
+                                let encSub = subHref.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? subHref
+                                guard let subURL = URL(string: encSub, relativeTo: seasonURL)?.absoluteString else { continue }
+
+                                if subURL == seasonEp.episodeURL || subURL.contains("Subbed-Videos/$") || subURL.contains("Dubbed-Videos/$") {
+                                    continue
+                                }
+
+                                let subRawTitle = (try? subTitleEl?.text())?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Episode"
+                                let fullTitle = seasonEp.title != subRawTitle ? "\(seasonEp.title) - \(subRawTitle)" : subRawTitle
+                                let subEpId = "\(anime.id)_s_\(abs(subURL.hashValue))"
+
+                                seasonSubEpisodes.append(Episode(
+                                    id: subEpId,
+                                    animeId: anime.id,
+                                    number: "\(realEpisodes.count + seasonSubEpisodes.count + 1)",
+                                    title: fullTitle,
+                                    episodeURL: subURL,
+                                    sourceId: source.id
+                                ))
+                            }
+
+                            lock.lock()
+                            realEpisodes.append(contentsOf: seasonSubEpisodes)
+                            lock.unlock()
+                        }.resume()
+                    }
+
+                    group.notify(queue: .main) {
+                        let finalEpisodes = realEpisodes.isEmpty ? episodes : realEpisodes
+                        let updatedAnime = Anime(
+                            id: anime.id,
+                            title: anime.title,
+                            coverURL: anime.coverURL,
+                            synopsis: synopsis.isEmpty ? anime.synopsis : synopsis,
+                            score: anime.score,
+                            status: anime.status,
+                            type: anime.type,
+                            genres: genres.isEmpty ? anime.genres : genres,
+                            detailURL: anime.detailURL,
+                            sourceId: anime.sourceId,
+                            totalEpisodes: finalEpisodes.count
+                        )
+                        completion(.success((updatedAnime, finalEpisodes)))
+                    }
+                    return
                 }
 
                 if episodes.isEmpty {
@@ -288,6 +424,30 @@ public final class AnimeScraperEngine {
             guard let doc = try? SwiftSoup.parse(html, episode.episodeURL) else {
                 DispatchQueue.main.async { completion(.success(videoSources)) }
                 return
+            }
+            try? doc.select("noscript").remove()
+
+            // If direct video wasn't found on the directory page, follow intermediate media page link (e.g. CartoonsArea "01 First Touch.mp4.php")
+            if videoSources.isEmpty {
+                if let mediaPageEl = try? doc.select("a[href*='.mp4.php'], a[href*='.php'], .directory-list a[href*='.mp4'], .directory-list a").first(),
+                   var mediaHref = try? mediaPageEl.attr("href"), !mediaHref.isEmpty {
+                    mediaHref = mediaHref.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if mediaHref.hasPrefix("//") { mediaHref = "https:" + mediaHref }
+                    let encMedia = mediaHref.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? mediaHref
+                    if let mediaURL = URL(string: encMedia, relativeTo: url) {
+                        let mediaReq = self.makeURLRequest(url: mediaURL, useProxy: source.useProxy)
+                        self.session.dataTask(with: mediaReq) { mData, _, _ in
+                            guard let mData = mData,
+                                  let mHtml = String(data: mData, encoding: .utf8) ?? String(data: mData, encoding: .ascii) else {
+                                DispatchQueue.main.async { completion(.success(videoSources)) }
+                                return
+                            }
+                            let resolved = DirectMP4Resolver.shared.resolveFromHTML(mHtml, pageURL: mediaURL)
+                            DispatchQueue.main.async { completion(.success(resolved.isEmpty ? videoSources : resolved)) }
+                        }.resume()
+                        return
+                    }
+                }
             }
 
             // 2. Parse server options / AJAX player options (e.g. Samehadaku east_player_option)

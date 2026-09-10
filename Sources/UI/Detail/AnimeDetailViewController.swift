@@ -152,7 +152,7 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
             case .success(let (updatedAnime, epList)):
                 self.anime = updatedAnime
                 self.episodes = epList
-                self.synopsisTextView.text = updatedAnime.synopsis
+                self.synopsisTextView.text = updatedAnime.synopsis.isEmpty ? "No synopsis available." : updatedAnime.synopsis
                 self.titleLabel.text = updatedAnime.title
                 self.tableView.reloadData()
             case .failure(let error):
