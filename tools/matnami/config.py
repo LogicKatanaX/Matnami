@@ -15,6 +15,9 @@ PROXIES_BASE = "https://manga-proxy.santamcyber.workers.dev/?url="
 # Request Timeouts (seconds)
 TIMEOUT_CONNECT = 10
 TIMEOUT_READ = 25
+# Request Timeouts (seconds - optimized for responsive batch audits)
+TIMEOUT_CONNECT = 5
+TIMEOUT_READ = 8
 
 # Compatibility Score Weights (Total: 100)
 WEIGHT_NETWORK = 20
@@ -22,3 +25,4 @@ WEIGHT_CATALOG = 20
 WEIGHT_DETAIL = 20
 WEIGHT_SERVERS = 20
 WEIGHT_STREAM = 20
+

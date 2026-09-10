@@ -58,6 +58,25 @@
     "serverItemSelector": ".mirrorstream ul li a",
     "ajaxAction": null,
     "useProxy": false
+  },
+  {
+    "id": "9anime",
+    "name": "9anime",
+    "baseURL": "https://9anime.skin",
+    "catalogPattern": "https://9anime.skin/page/{page}/",
+    "searchPattern": "https://9anime.skin/?s={query}",
+    "cardSelector": "a[href*='/anime/'], a[href*='/watch/'], a[href*='/series/']",
+    "linkSelector": "a[href]",
+    "titleSelector": "h2, h3, .title",
+    "coverSelector": "img",
+    "scoreSelector": ".score, .rating",
+    "synopsisSelector": ".desc, .entry-content",
+    "episodeListSelector": ".episodelist ul li, .lstepsiode ul li, a[href*='/episode']",
+    "episodeLinkSelector": "a",
+    "episodeTitleSelector": "a",
+    "playerIframeSelector": "#pembed iframe, .player-embed iframe, iframe[src]",
+    "serverItemSelector": ".server-item, .mirror",
+    "ajaxAction": null,
+    "useProxy": false
   }
 ]
-

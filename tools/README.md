@@ -45,3 +45,4 @@ python tools/matnami_tester.py remove samehadaku
 **Verdict Threshold**:
 * **$\ge 70$ Points + Hardware H.264 / HLS**: **COMPATIBLE**
 * **$< 70$ Points OR Software-only Codec (HEVC / VP9)**: **STRICT REJECTION**
+

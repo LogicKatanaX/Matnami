@@ -6,3 +6,4 @@ if %ERRORLEVEL% NEQ 0 (
     echo An error occurred while running the tester.
 )
 pause
+

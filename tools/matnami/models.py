@@ -42,3 +42,4 @@ class AuditReport:
     stream_audit: Optional[VideoStreamAudit] = None
     suggested_config: Optional[Dict[str, Any]] = None
     recommendations: List[str] = field(default_factory=list)
+

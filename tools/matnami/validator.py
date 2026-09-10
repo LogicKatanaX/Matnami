@@ -211,11 +211,20 @@ class WebsiteAuditor:
         if not cards:
             # Fallback scan
             for test in ["article", ".card", ".box", ".movie", ".film", ".thumb"]:
+            # Fallback scan 1: common classes
+            for test in ["article", ".card", ".box", ".movie", ".film", ".thumb", ".item", ".poster"]:
                 found = soup.select(test)
                 if len(found) >= 3:
                     card_sel = test
                     cards = found
                     break
+
+        if not cards:
+            # Fallback scan 2: elements directly linking to anime or series
+            found_links = soup.select("a[href*='/anime/'], a[href*='/watch/'], a[href*='/series/']")
+            if len(found_links) >= 3:
+                card_sel = "a[href*='/anime/'], a[href*='/watch/'], a[href*='/series/']"
+                cards = found_links
 
         if not cards:
             return HopTestResult("Catalog & Search", False, 0, WEIGHT_CATALOG, 0, {}, messages, "No anime cards found on catalog"), None
@@ -226,6 +235,7 @@ class WebsiteAuditor:
         # Parse first card
         first = cards[0]
         link_el = first.select_one("a[href]")
+        link_el = first if first.name == "a" else first.select_one("a[href]")
         title_el = first.select_one("h2, h3, h4, .title, .tt, .entry-title") or link_el
         img_el = first.select_one("img")
 
@@ -273,12 +283,21 @@ class WebsiteAuditor:
         try:
             resp = self.session.get(fetch_url, timeout=(TIMEOUT_CONNECT, TIMEOUT_READ))
             if resp.status_code != 200:
+            if (resp.status_code != 200 or "Just a moment..." in resp.text or "challenge-running" in resp.text) and not use_proxy:
+                # Automatic Cloudflare Worker proxy fallback
+                proxy_url = PROXIES_BASE + urllib.parse.quote(detail_url, safe="")
+                resp = self.session.get(proxy_url, timeout=(TIMEOUT_CONNECT, TIMEOUT_READ))
+                if resp.status_code == 200 and "Just a moment..." not in resp.text:
+                    messages.append("Bypassed Cloudflare challenge via Edge Proxy.")
+
+            if resp.status_code != 200 or "Just a moment..." in resp.text:
                 return HopTestResult("Detail & Episodes", False, 0, WEIGHT_DETAIL, 0, {}, messages, f"HTTP {resp.status_code}"), []
 
             soup = BeautifulSoup(resp.text, "html.parser")
 
             # Synopsis
             syn_el = soup.select_one(".desc, .entry-content, .sinopc, .synopsis, #synopsis")
+            syn_el = soup.select_one(".desc, .entry-content, .sinopc, .synopsis, #synopsis, .film-description")
             synopsis = syn_el.text.strip()[:100] if syn_el else "N/A"
             details["synopsis_snippet"] = synopsis
 
@@ -286,11 +305,13 @@ class WebsiteAuditor:
             ep_sel = existing_config.get("episodeListSelector") if existing_config else None
             if not ep_sel:
                 ep_sel = ".lstepsiode ul li, .episodelst ul li, .episodelist ul li, #episode_list li, .eph-num, .listeps ul li"
+                ep_sel = ".lstepsiode ul li, .episodelst ul li, .episodelist ul li, #episode_list li, .eph-num, .listeps ul li, .episodes-ul li, .ssl-item, a[href*='/watch/'], a[href*='/episode/']"
 
             ep_items = soup.select(ep_sel)
             if not ep_items:
                 # Fallback search for any episode links
                 ep_items = soup.select("a[href*='/episode'], a[href*='-episode-']")
+                ep_items = soup.select("a[href*='/episode'], a[href*='-episode-'], a[href*='/watch/']")
 
             episodes = []
             for idx, item in enumerate(ep_items):
@@ -299,11 +320,14 @@ class WebsiteAuditor:
                     ep_url = urllib.parse.urljoin(detail_url, link.get("href"))
                     ep_title = link.text.strip() or f"Episode {idx + 1}"
                     episodes.append({"title": ep_title, "url": ep_url})
+                    if not any(e["url"] == ep_url for e in episodes):
+                        episodes.append({"title": ep_title, "url": ep_url})
 
             if not episodes:
                 return HopTestResult("Detail & Episodes", False, 5, WEIGHT_DETAIL, 0, details, messages, "No episode links discovered"), []
 
             messages.append(f"Discovered {len(episodes)} episodes (Sample: {episodes[0]['title']}).")
+            messages.append(f"Discovered {len(episodes)} episodes (Sample: {episodes[0]['title'][:30]}).")
             details["episode_count"] = len(episodes)
             details["sample_episode_url"] = episodes[0]["url"]
 
@@ -327,6 +351,13 @@ class WebsiteAuditor:
         try:
             resp = self.session.get(fetch_url, timeout=(TIMEOUT_CONNECT, TIMEOUT_READ))
             if resp.status_code != 200:
+            if (resp.status_code != 200 or "Just a moment..." in resp.text or "challenge-running" in resp.text) and not use_proxy:
+                proxy_url = PROXIES_BASE + urllib.parse.quote(ep_url, safe="")
+                resp = self.session.get(proxy_url, timeout=(TIMEOUT_CONNECT, TIMEOUT_READ))
+                if resp.status_code == 200 and "Just a moment..." not in resp.text:
+                    messages.append("Bypassed Cloudflare challenge on episode page via Edge Proxy.")
+
+            if resp.status_code != 200 or "Just a moment..." in resp.text:
                 return HopTestResult("Video Servers", False, 0, WEIGHT_SERVERS, 0, {}, messages, f"HTTP {resp.status_code}"), []
 
             soup = BeautifulSoup(resp.text, "html.parser")
@@ -336,6 +367,7 @@ class WebsiteAuditor:
             discovered.extend(directs)
 
             # 2. Extract iframes
+            # 2. Extract iframes (supports nested iframes)
             iframes = soup.select("iframe[src], iframe[data-src]")
             for iframe in iframes:
                 src = iframe.get("src") or iframe.get("data-src") or ""
@@ -348,6 +380,16 @@ class WebsiteAuditor:
                     # Try resolving
                     try:
                         emb_resp = self.session.get(full_src, headers={"Referer": ep_url}, timeout=8)
+                # Follow iframe to see if it embeds a video or player
+                try:
+                    iframe_fetch = PROXIES_BASE + urllib.parse.quote(full_src, safe="") if use_proxy else full_src
+                    emb_resp = self.session.get(iframe_fetch, headers={"Referer": ep_url}, timeout=6)
+                    if emb_resp.status_code != 200 and not use_proxy:
+                        iframe_fetch = PROXIES_BASE + urllib.parse.quote(full_src, safe="")
+                        emb_resp = self.session.get(iframe_fetch, headers={"Referer": ep_url}, timeout=6)
+
+                    if StreamtapeResolver.can_handle(full_src):
+                        messages.append(f"Found Streamtape embed: {full_src}")
                         res = StreamtapeResolver.resolve(emb_resp.text, full_src)
                         if res:
                             discovered.append(res)
@@ -358,12 +400,37 @@ class WebsiteAuditor:
                     messages.append(f"Found Filemoon embed: {full_src}")
                     try:
                         emb_resp = self.session.get(full_src, headers={"Referer": ep_url}, timeout=8)
+                    elif FilemoonResolver.can_handle(full_src):
+                        messages.append(f"Found Filemoon embed: {full_src}")
                         res = FilemoonResolver.resolve(emb_resp.text, full_src)
                         if res:
                             discovered.append(res)
                     except Exception:
                         pass
                 else:
+                    else:
+                        # Check if this iframe embeds another inner iframe
+                        inner_soup = BeautifulSoup(emb_resp.text, "html.parser")
+                        inner_iframes = inner_soup.select("iframe[src], iframe[data-src]")
+                        if inner_iframes:
+                            inner_src = inner_iframes[0].get("src") or inner_iframes[0].get("data-src")
+                            full_inner = urllib.parse.urljoin(full_src, inner_src)
+                            discovered.append({
+                                "server": urllib.parse.urlparse(full_inner).netloc,
+                                "stream_url": full_inner,
+                                "format": "m3u8" if ".m3u8" in full_inner else "mp4",
+                                "is_direct": False,
+                                "headers": {"Referer": full_src}
+                            })
+                        else:
+                            discovered.append({
+                                "server": urllib.parse.urlparse(full_src).netloc,
+                                "stream_url": full_src,
+                                "format": "m3u8" if ".m3u8" in full_src else "mp4",
+                                "is_direct": False,
+                                "headers": {"Referer": ep_url}
+                            })
+                except Exception:
                     discovered.append({
                         "server": urllib.parse.urlparse(full_src).netloc,
                         "stream_url": full_src,
@@ -513,3 +580,4 @@ class WebsiteAuditor:
             "ajaxAction": "player_ajax" if "Eastheme" in cms_detected else None,
             "useProxy": use_proxy
         }
+

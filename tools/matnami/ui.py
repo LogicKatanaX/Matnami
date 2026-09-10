@@ -1,4 +1,5 @@
 import json
+from typing import List
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -89,6 +90,69 @@ def display_audit_report(report: AuditReport):
         syntax = Syntax(formatted_json, "json", theme="monokai", line_numbers=False)
         console.print(syntax)
 
+def display_batch_summary_table(reports: List[AuditReport]):
+    # Sort by overall score descending
+    sorted_reports = sorted(reports, key=lambda r: r.overall_score, reverse=True)
+    compatible_count = sum(1 for r in reports if r.is_compatible)
+    incompatible_count = len(reports) - compatible_count
+
+    console.print("\n")
+    console.print(Panel(
+        f"[bold white]Total Websites Audited:[/] [cyan]{len(reports)}[/]  |  "
+        f"[bold white]Compatible with iPad Air 1:[/] [bold green]{compatible_count}[/bold green]  |  "
+        f"[bold white]Incompatible / Blocked:[/] [bold red]{incompatible_count}[/bold red]",
+        title="[bold]Batch Compatibility Audit Results[/bold]",
+        border_style="cyan"
+    ))
+
+    table = Table(show_header=True, header_style="bold cyan")
+    table.add_column("#", style="dim", width=4, justify="right")
+    table.add_column("Source / Domain", style="bold white", width=24)
+    table.add_column("Score", width=8, justify="right")
+    table.add_column("Verdict", width=18)
+    table.add_column("Network / Bot Wall", width=18)
+    table.add_column("CMS Detected", width=20)
+    table.add_column("Stream / Codec", width=22)
+
+    for idx, r in enumerate(sorted_reports, 1):
+        if r.is_compatible:
+            verdict_str = "[bold green]COMPATIBLE[/bold green]"
+            score_str = f"[bold green]{r.overall_score}[/bold green]"
+        elif r.overall_score >= 40:
+            verdict_str = "[yellow]NEEDS TWEAKS[/yellow]"
+            score_str = f"[yellow]{r.overall_score}[/yellow]"
+        else:
+            verdict_str = "[bold red]REJECTED[/bold red]"
+            score_str = f"[bold red]{r.overall_score}[/bold red]"
+
+        # Network status
+        if not r.network_hop.passed:
+            net_str = "[red]BLOCKED (403/Fail)[/]"
+        elif r.use_proxy:
+            net_str = "[yellow]Proxy Needed[/]"
+        else:
+            net_str = "[green]Direct (200 OK)[/]"
+
+        # Stream
+        if r.stream_audit:
+            stream_str = f"{r.stream_audit.server_name} ({r.stream_audit.codec[:12]})"
+        elif r.servers_hop.passed:
+            stream_str = "[yellow]Servers Found[/]"
+        else:
+            stream_str = "[dim]None[/dim]"
+
+        table.add_row(
+            str(idx),
+            r.url.replace("https://", "").replace("http://", ""),
+            score_str,
+            verdict_str,
+            net_str,
+            r.cms_detected[:20],
+            stream_str
+        )
+
+    console.print(table)
+
 def display_sources_table(sources: list):
     table = Table(title="Active Matnami Anime Sources (Sources/sources.json)", show_header=True, header_style="bold red")
     table.add_column("ID", style="cyan", width=14)
@@ -101,3 +165,4 @@ def display_sources_table(sources: list):
         table.add_row(s.get("id", ""), s.get("name", ""), s.get("baseURL", ""), proxy_str)
 
     console.print(table)
+
