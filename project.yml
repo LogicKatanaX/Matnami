@@ -1,0 +1,40 @@
+name: Matnami
+options:
+  bundleIdPrefix: com.matnami
+  deploymentTarget:
+    iOS: "12.0"
+  xcodeVersion: "15.0"
+  createIntermediateGroups: true
+
+targets:
+  Matnami:
+    type: application
+    platform: iOS
+    deploymentTarget: "12.0"
+    sources:
+      - path: Sources
+    info:
+      path: Sources/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.matnami.app
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        IPHONEOS_DEPLOYMENT_TARGET: "12.0"
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+        ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: "YES"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/Matnami-Bridging-Header.h
+        HEADER_SEARCH_PATHS:
+          - $(inherited)
+          - $(PODS_ROOT)/Headers/Public
+          - $(PODS_ROOT)/Headers/Public/libwebp
+          - $(PODS_ROOT)/Headers/Public/libwebp/webp
+          - $(PODS_ROOT)/libwebp/src
+          - $(PODS_ROOT)/libwebp/src/webp
+          - $(PODS_CONFIGURATION_BUILD_DIR)/libwebp/libwebp.framework/Headers
+        FRAMEWORK_SEARCH_PATHS:
+          - $(inherited)
+          - $(PODS_CONFIGURATION_BUILD_DIR)
+          - $(PODS_CONFIGURATION_BUILD_DIR)/libwebp

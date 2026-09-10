@@ -1,0 +1,138 @@
+name: Build Matnami IPA (iOS 12)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Unsigned IPA
+    runs-on: macos-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Install CocoaPods
+        run: brew install cocoapods
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Install CocoaPods Dependencies
+        run: pod install
+
+      - name: Build unsigned app
+        run: |
+          xcodebuild \
+            -workspace Matnami.xcworkspace \
+            -scheme Matnami \
+            -sdk iphoneos \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+
+      - name: Ensure complete Swift stdlib embedding
+        run: |
+          APP_PATH="build/Build/Products/Release-iphoneos/Matnami.app"
+          xcrun swift-stdlib-tool --copy \
+            --scan-executable "$APP_PATH/Matnami" \
+            --scan-folder "$APP_PATH/Frameworks" \
+            --platform iphoneos \
+            --destination "$APP_PATH/Frameworks" \
+            --strip-bitcode
+
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/Matnami.app Payload/
+          zip -r Matnami.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Matnami-iOS12-IPA
+          path: Matnami.ipa
+
+  simulator:
+    name: Test in iOS Simulator
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Install CocoaPods
+        run: brew install cocoapods
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Install Pods
+        run: pod install
+
+      - name: Select available iPad/iPhone simulator
+        run: |
+          DEVICE_UDID=$(xcrun simctl list devices available --json | python3 -c '
+          import json
+          import sys
+          devices = json.load(sys.stdin)["devices"]
+          for runtimes in devices.values():
+              for device in runtimes:
+                  if (device["name"].startswith("iPad") or device["name"].startswith("iPhone")) and device["isAvailable"]:
+                      print(device["udid"])
+                      raise SystemExit
+          raise SystemExit("No available simulator found")
+          ')
+          echo "DEVICE_UDID=$DEVICE_UDID" >> "$GITHUB_ENV"
+          echo "Using simulator $DEVICE_UDID"
+
+      - name: Build simulator app
+        run: |
+          xcodebuild \
+            -workspace Matnami.xcworkspace \
+            -scheme Matnami \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            -derivedDataPath simulator-build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+
+      - name: Boot, install, and launch app
+        run: |
+          xcrun simctl boot "$DEVICE_UDID" || true
+          xcrun simctl bootstatus "$DEVICE_UDID" -b
+          xcrun simctl install "$DEVICE_UDID" simulator-build/Build/Products/Debug-iphonesimulator/Matnami.app
+          xcrun simctl launch "$DEVICE_UDID" com.matnami.app
+          sleep 5
+
+      - name: Capture simulator screenshot
+        if: always()
+        run: |
+          mkdir -p simulator-results
+          xcrun simctl io "$DEVICE_UDID" screenshot simulator-results/Matnami-simulator.png
+
+      - name: Capture simulator console log
+        if: always()
+        run: |
+          mkdir -p simulator-results
+          xcrun simctl spawn "$DEVICE_UDID" log show \
+            --style syslog \
+            --info \
+            --debug \
+            --last 15m > simulator-results/Matnami-simulator-console.log
+
+      - name: Upload simulator results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Matnami-simulator-results
+          path: simulator-results/
+          if-no-files-found: warn

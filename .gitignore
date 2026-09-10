@@ -1,0 +1,21 @@
+# Xcode
+build/
+*.build
+DerivedData/
+*.xcuserstate
+project.xcworkspace/xcuserdata/
+*.xcuserdatad
+
+# CocoaPods
+Pods/
+Podfile.lock
+*.xcworkspace
+
+# Artifacts
+*.ipa
+Payload/
+simulator-results/
+
+# OS Files
+.DS_Store
+Thumbs.db
