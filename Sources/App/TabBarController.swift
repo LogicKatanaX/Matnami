@@ -67,3 +67,4 @@ public final class TabBarController: UITabBarController {
         return image?.withRenderingMode(.alwaysOriginal)
     }
 }
+

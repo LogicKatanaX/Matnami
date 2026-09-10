@@ -143,3 +143,4 @@ public final class SearchViewController: UIViewController, UISearchBarDelegate, 
         navigationController?.pushViewController(detailVC, animated: true)
     }
 }
+

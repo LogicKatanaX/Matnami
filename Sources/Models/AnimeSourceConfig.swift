@@ -60,3 +60,4 @@ public struct AnimeSourceConfig: Codable, Equatable {
         self.useProxy = useProxy
     }
 }
+

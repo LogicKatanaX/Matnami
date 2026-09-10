@@ -38,3 +38,4 @@ targets:
           - $(inherited)
           - $(PODS_CONFIGURATION_BUILD_DIR)
           - $(PODS_CONFIGURATION_BUILD_DIR)/libwebp
+

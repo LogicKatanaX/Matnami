@@ -105,3 +105,4 @@ public final class ImageLoader {
         return UIImage(cgImage: thumbnail)
     }
 }
+

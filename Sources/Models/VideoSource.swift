@@ -63,3 +63,4 @@ public struct VideoSource: Codable, Equatable {
         return dict
     }
 }
+

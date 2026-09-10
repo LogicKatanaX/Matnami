@@ -39,3 +39,4 @@ public struct Anime: Codable, Equatable {
         self.totalEpisodes = totalEpisodes
     }
 }
+

@@ -100,3 +100,4 @@ public final class AnimeGridCell: UICollectionViewCell {
         scoreBadge.isHidden = true
     }
 }
+

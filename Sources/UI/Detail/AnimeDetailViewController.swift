@@ -295,3 +295,4 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
         present(alert, animated: true)
     }
 }
+

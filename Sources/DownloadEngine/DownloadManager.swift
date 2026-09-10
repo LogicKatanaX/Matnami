@@ -268,3 +268,4 @@ public extension Notification.Name {
     static let downloadCompleted = Notification.Name("com.matnami.downloadCompleted")
     static let downloadStateChanged = Notification.Name("com.matnami.downloadStateChanged")
 }
+

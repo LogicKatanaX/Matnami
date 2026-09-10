@@ -326,3 +326,4 @@ public final class AnimeScraperEngine {
         return result
     }
 }
+

@@ -91,3 +91,4 @@ public struct DownloadItem: Codable, Equatable {
         }
     }
 }
+

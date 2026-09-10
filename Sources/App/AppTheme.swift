@@ -29,3 +29,4 @@ public struct AppTheme {
         UINavigationBar.appearance().isTranslucent = false
     }
 }
+

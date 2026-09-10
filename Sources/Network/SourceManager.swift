@@ -120,3 +120,4 @@ public extension Notification.Name {
     static let sourceDidChange = Notification.Name("com.matnami.sourceDidChange")
     static let sourcesDidUpdate = Notification.Name("com.matnami.sourcesDidUpdate")
 }
+

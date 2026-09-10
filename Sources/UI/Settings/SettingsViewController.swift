@@ -198,3 +198,4 @@ public final class SettingsViewController: UITableViewController {
         present(alert, animated: true)
     }
 }
+

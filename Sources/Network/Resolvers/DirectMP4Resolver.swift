@@ -102,3 +102,4 @@ public final class DirectMP4Resolver {
         return .normal720p
     }
 }
+
