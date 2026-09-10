@@ -6,7 +6,7 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 
-from .models import AuditReport
+from .models import AuditReport, IntelligenceReport
 
 console = Console()
 
@@ -58,6 +58,19 @@ def display_audit_report(report: AuditReport):
 
     console.print(table)
 
+    # Language Audit Panel
+    if report.language_audit:
+        la = report.language_audit
+        border = "green" if la.is_acceptable else "red"
+        console.print(Panel(
+            f"[bold white]Detected Languages:[/] {', '.join(la.detected_languages) if la.detected_languages else '[dim]None verified[/dim]'}\n"
+            f"[bold white]English Subtitles:[/] {'[green]YES (Supported)[/]' if la.has_english_sub else '[yellow]NO[/]'}\n"
+            f"[bold white]English Dubbed:[/] {'[green]YES (Supported)[/]' if la.has_english_dub else '[yellow]NO[/]'}\n"
+            f"[bold white]Language Rubric Status:[/] {la.status}",
+            title="[bold]Audio & Subtitle Language Audit (Japanese + Eng Sub OR Eng Dub/Sub)[/bold]",
+            border_style=border
+        ))
+
     # Video Stream Audit Table
     if report.stream_audit:
         s = report.stream_audit
@@ -77,9 +90,13 @@ def display_audit_report(report: AuditReport):
 
         console.print(s_table)
 
+    # Intelligent Decision Tree & Heuristics Breakdown
+    if report.intelligence:
+        display_intelligence_tree(report.intelligence)
+
     # Recommendations
     if report.recommendations:
-        console.print("\n[bold yellow]Auditor Recommendations:[/bold yellow]")
+        console.print("\n[bold yellow]Auditor Recommendations & Diagnostics:[/bold yellow]")
         for rec in report.recommendations:
             console.print(f"  [yellow]•[/yellow] {rec}")
 
@@ -89,6 +106,64 @@ def display_audit_report(report: AuditReport):
         formatted_json = json.dumps(report.suggested_config, indent=2)
         syntax = Syntax(formatted_json, "json", theme="monokai", line_numbers=False)
         console.print(syntax)
+
+def display_intelligence_tree(intel: IntelligenceReport):
+    if not intel:
+        return
+
+    console.print("\n")
+    # Intelligence Decision Tree Table
+    t_intel = Table(
+        title="Heuristics & Decision Tree Evaluation Engine (if/else Reasoning)",
+        show_header=True,
+        header_style="bold yellow"
+    )
+    t_intel.add_column("Rule / Heuristic", style="bold cyan", width=22)
+    t_intel.add_column("Evaluated Condition (IF)", style="white", width=36)
+    t_intel.add_column("Decision Outcome (THEN)", style="yellow", width=30)
+    t_intel.add_column("Status", width=10, justify="center")
+    t_intel.add_column("Architectural Deduction", style="dim")
+
+    for rule in intel.decision_rules:
+        if rule.status == "PASS":
+            st_text = "[bold green]PASS[/bold green]"
+        elif rule.status == "FAIL":
+            st_text = "[bold red]FAIL[/bold red]"
+        elif rule.status == "WARN":
+            st_text = "[bold yellow]WARN[/bold yellow]"
+        else:
+            st_text = "[dim]SKIP[/dim]"
+
+        t_intel.add_row(
+            rule.rule_name,
+            rule.condition,
+            rule.outcome,
+            st_text,
+            rule.deduction
+        )
+
+    console.print(t_intel)
+
+    # Synthesis & Architectural Advice Panel
+    border = "red" if intel.is_fundamental_rejection else ("green" if "100% COMPATIBLE" in intel.verdict_summary else "yellow")
+    
+    proxy_str = "[bold green]YES (Edge Worker can bypass)[/bold green]" if intel.can_be_fixed_with_proxy else "[dim]NO[/dim]"
+    fund_str = "[bold red]YES (Unusable on iPad Air 1)[/bold red]" if intel.is_fundamental_rejection else "[bold green]NO[/bold green]"
+
+    content = [
+        f"[bold white]Executive Verdict:[/] {intel.verdict_summary}",
+        f"[bold white]Proxy Solvable?[/] {proxy_str}  |  [bold white]Fundamental Rejection?[/] {fund_str}\n"
+    ]
+    if intel.architectural_advice:
+        content.append("[bold white]Architectural Guidance & Next Steps:[/bold white]")
+        for adv in intel.architectural_advice:
+            content.append(f"  [cyan]•[/cyan] {adv}")
+
+    console.print(Panel(
+        "\n".join(content),
+        title="[bold]Synthesized Auditor Intelligence & Architecture Advice[/bold]",
+        border_style=border
+    ))
 
 def display_batch_summary_table(reports: List[AuditReport]):
     # Sort by overall score descending
@@ -106,12 +181,13 @@ def display_batch_summary_table(reports: List[AuditReport]):
     ))
 
     table = Table(show_header=True, header_style="bold cyan")
-    table.add_column("#", style="dim", width=4, justify="right")
-    table.add_column("Source / Domain", style="bold white", width=24)
-    table.add_column("Score", width=8, justify="right")
-    table.add_column("Verdict", width=18)
-    table.add_column("Network / Bot Wall", width=18)
-    table.add_column("CMS Detected", width=20)
+    table.add_column("#", style="dim", width=3, justify="right")
+    table.add_column("Source / Domain", style="bold white", width=22)
+    table.add_column("Score", width=6, justify="right")
+    table.add_column("Verdict", width=15)
+    table.add_column("Language", width=14)
+    table.add_column("Network", width=16)
+    table.add_column("CMS Detected", width=18)
     table.add_column("Stream / Codec", width=22)
 
     for idx, r in enumerate(sorted_reports, 1):
@@ -125,9 +201,20 @@ def display_batch_summary_table(reports: List[AuditReport]):
             verdict_str = "[bold red]REJECTED[/bold red]"
             score_str = f"[bold red]{r.overall_score}[/bold red]"
 
+        # Language status
+        if r.language_audit:
+            if r.language_audit.is_acceptable:
+                lang_str = "[bold green]Eng Sub/Dub[/bold green]"
+            elif "sub indo" in r.language_audit.status.lower() or "indonesian" in r.language_audit.status.lower():
+                lang_str = "[bold red]Sub Indo[/bold red]"
+            else:
+                lang_str = "[bold red]Non-English[/bold red]"
+        else:
+            lang_str = "[dim]Unknown[/dim]"
+
         # Network status
         if not r.network_hop.passed:
-            net_str = "[red]BLOCKED (403/Fail)[/]"
+            net_str = "[red]BLOCKED (403/WAF)[/]"
         elif r.use_proxy:
             net_str = "[yellow]Proxy Needed[/]"
         else:
@@ -136,8 +223,14 @@ def display_batch_summary_table(reports: List[AuditReport]):
         # Stream
         if r.stream_audit:
             stream_str = f"{r.stream_audit.server_name} ({r.stream_audit.codec[:12]})"
+            if not r.stream_audit.is_hw_accelerated:
+                stream_str = f"[bold red]{r.stream_audit.codec[:12]}[/bold red]"
+            else:
+                stream_str = f"[green]{r.stream_audit.codec[:12]}[/green]"
         elif r.servers_hop.passed:
-            stream_str = "[yellow]Servers Found[/]"
+            stream_str = "[yellow]Direct Links[/]"
+        elif "Shortener" in (r.servers_hop.error or ""):
+            stream_str = "[bold red]Ad Shorteners[/bold red]"
         else:
             stream_str = "[dim]None[/dim]"
 
@@ -146,8 +239,9 @@ def display_batch_summary_table(reports: List[AuditReport]):
             r.url.replace("https://", "").replace("http://", ""),
             score_str,
             verdict_str,
+            lang_str,
             net_str,
-            r.cms_detected[:20],
+            r.cms_detected[:18],
             stream_str
         )
 

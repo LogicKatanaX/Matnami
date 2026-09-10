@@ -16,13 +16,46 @@ public final class DownloadsViewController: UIViewController, UITableViewDataSou
         setupStorageHeader()
         setupEmptyState()
         setupObservers()
+        updateNavBar()
     }
 
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         updateStorageMeter()
+        updateNavBar()
         tableView.reloadData()
         updateEmptyState()
+    }
+
+    private func updateNavBar() {
+        if !DownloadManager.shared.items.isEmpty {
+            navigationItem.rightBarButtonItem = UIBarButtonItem(
+                title: "🗑️ Clear All",
+                style: .plain,
+                target: self,
+                action: #selector(confirmClearAllDownloads)
+            )
+        } else {
+            navigationItem.rightBarButtonItem = nil
+        }
+    }
+
+    @objc private func confirmClearAllDownloads() {
+        let downloadsSpace = StorageManager.shared.formatBytes(StorageManager.shared.totalDownloadsSpace)
+        let alert = UIAlertController(
+            title: "Delete All Offline Downloads?",
+            message: "This will delete all offline anime episodes from your iPad to free \(downloadsSpace) of storage.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+        alert.addAction(UIAlertAction(title: "Delete All", style: .destructive) { [weak self] _ in
+            DownloadManager.shared.deleteAllDownloads()
+            self?.updateNavBar()
+            self?.updateStorageMeter()
+            self?.tableView.reloadData()
+            self?.updateEmptyState()
+        })
+        present(alert, animated: true)
     }
 
     private func setupTableView() {
@@ -82,6 +115,7 @@ public final class DownloadsViewController: UIViewController, UITableViewDataSou
         NotificationCenter.default.addObserver(self, selector: #selector(handleProgressNotification(_:)), name: .downloadProgress, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleStateChanged), name: .downloadStateChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleStateChanged), name: .downloadCompleted, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleStateChanged), name: .appDidReset, object: nil)
     }
 
     @objc private func handleProgressNotification(_ notification: Notification) {

@@ -63,7 +63,9 @@ def cmd_test_all(auditor: WebsiteAuditor, sm: SourceManager):
 
     console.print(f"[bold cyan]Auditing all {len(sources)} sources in Sources/sources.json...[/bold cyan]\n")
     for s in sources:
-        url = s.get("baseURL")
+        url = s.get("catalogPattern") or s.get("baseURL")
+        if url and "{page}" in url:
+            url = url.replace("{page}", "1")
         if url:
             console.print(f"[bold cyan]Auditing {s.get('name')} ({url})...[/bold cyan]")
             report = auditor.audit_url(url, existing_config=s)

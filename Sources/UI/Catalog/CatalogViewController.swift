@@ -22,13 +22,19 @@ public final class CatalogViewController: UIViewController, UICollectionViewData
         setupNavigationBar()
 
         NotificationCenter.default.addObserver(self, selector: #selector(sourceChanged), name: .sourceDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(sourceChanged), name: .appDidReset, object: nil)
         loadData(reset: true)
     }
 
     private func setupNavigationBar() {
-        let sourceName = SourceManager.shared.activeSource?.name ?? "Source"
-        let sourceBtn = UIBarButtonItem(title: "📡 \(sourceName)", style: .plain, target: self, action: #selector(promptSourceSelection))
-        navigationItem.rightBarButtonItem = sourceBtn
+        let sourceName = SourceManager.shared.activeSource?.name ?? "Anime"
+        title = "Matnami (\(sourceName))"
+        if SourceManager.shared.sources.count > 1 {
+            let sourceBtn = UIBarButtonItem(title: "📡 \(sourceName)", style: .plain, target: self, action: #selector(promptSourceSelection))
+            navigationItem.rightBarButtonItem = sourceBtn
+        } else {
+            navigationItem.rightBarButtonItem = nil
+        }
     }
 
     @objc private func sourceChanged() {

@@ -6,14 +6,16 @@ public final class AppSettings {
     private let defaults = UserDefaults.standard
 
     private let keyQuality = "com.matnami.pref_quality"
+    private let keyProxy = "com.matnami.pref_use_proxy"
     private let keyOTAUrl = "com.matnami.pref_ota_url"
+    private let keyProxyUrl = "com.matnami.pref_proxy_url"
 
-    /// Cloudflare Worker Reverse Proxy Base Endpoint (Always-on architecture)
-    public let proxyBaseUrl: String = "https://manga-proxy.santamcyber.workers.dev/?url="
+    /// Default Cloudflare Worker Reverse Proxy Base Endpoint (Always-on architecture)
+    public static let defaultProxyBase = "https://manga-proxy.santamcyber.workers.dev/?url="
 
     private init() {}
 
-    /// Default video quality preference (Defaults to 720p for optimal iPad Air 1 hardware playback)
+    /// Preferred video quality for iPad Air 1 hardware playback (Defaults to 720p)
     public var preferredQuality: VideoQuality {
         get {
             guard let raw = defaults.string(forKey: keyQuality),
@@ -27,6 +29,19 @@ public final class AppSettings {
         }
     }
 
+    /// Global Cloudflare Worker reverse proxy toggle (Default: true)
+    public var useProxyByDefault: Bool {
+        get {
+            if defaults.object(forKey: keyProxy) == nil {
+                return true
+            }
+            return defaults.bool(forKey: keyProxy)
+        }
+        set {
+            defaults.set(newValue, forKey: keyProxy)
+        }
+    }
+
     /// Custom OTA sources.json URL
     public var customOTAUrl: String {
         get {
@@ -36,5 +51,28 @@ public final class AppSettings {
             defaults.set(newValue, forKey: keyOTAUrl)
         }
     }
+
+    /// Cloudflare Worker Reverse Proxy Base Endpoint
+    public var proxyBaseUrl: String {
+        get {
+            return defaults.string(forKey: keyProxyUrl) ?? AppSettings.defaultProxyBase
+        }
+        set {
+            defaults.set(newValue, forKey: keyProxyUrl)
+        }
+    }
+
+    /// Resets all user settings back to initial factory defaults
+    public func resetToDefaults() {
+        defaults.removeObject(forKey: keyQuality)
+        defaults.removeObject(forKey: keyProxy)
+        defaults.removeObject(forKey: keyOTAUrl)
+        defaults.removeObject(forKey: keyProxyUrl)
+    }
 }
+
+public extension Notification.Name {
+    static let appDidReset = Notification.Name("com.matnami.appDidReset")
+}
+
 

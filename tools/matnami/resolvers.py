@@ -90,6 +90,21 @@ class FilemoonResolver:
             }
         return None
 
+from .config import AD_SHORTENER_DOMAINS
+
+def is_ad_shortener(url: str) -> bool:
+    """Checks if a URL points to a known monetized ad shortener or captcha gate."""
+    if not url:
+        return False
+    host = urllib.parse.urlparse(url).netloc.lower()
+    for domain in AD_SHORTENER_DOMAINS:
+        if domain in host:
+            return True
+    # Common shortener path patterns
+    if "/redirect/" in url and ("id=" in url or "token=" in url):
+        return True
+    return False
+
 class DirectMediaResolver:
     @staticmethod
     def resolve(html: str, page_url: str) -> list[dict]:
@@ -111,7 +126,7 @@ class DirectMediaResolver:
                 "headers": {"Referer": page_url}
             })
 
-        # 2. Direct download mirror links
+        # 2. Direct download mirror links & raw video paths
         for a in soup.select("a[href]"):
             href = a.get("href", "").strip()
             if not href:
@@ -119,10 +134,10 @@ class DirectMediaResolver:
             full_url = urllib.parse.urljoin(page_url, href)
             host = urllib.parse.urlparse(full_url).netloc.lower()
 
-            if any(k in host for k in ["pixeldrain.com", "gofile.io", "wibufile.com", "blogger.com"]) or full_url.lower().endswith(".mp4"):
+            if any(k in host for k in ["pixeldrain.com", "gofile.io", "wibufile.com", "blogger.com"]) or full_url.lower().endswith(".mp4") or "USER-DATA" in full_url:
                 name = host.replace("www.", "").split(".")[0].capitalize()
                 results.append({
-                    "server": name if name else "Mirror",
+                    "server": name if name else "Direct MP4",
                     "stream_url": full_url,
                     "format": "mp4",
                     "is_direct": True,
@@ -130,4 +145,5 @@ class DirectMediaResolver:
                 })
 
         return results
+
 

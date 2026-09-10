@@ -5,7 +5,7 @@ public final class AnimeScraperEngine {
     public static let shared = AnimeScraperEngine()
 
     private let desktopUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    private static let proxyBase = "https://manga-proxy.santamcyber.workers.dev/?url="
+    public static let proxyBase = "https://manga-proxy.santamcyber.workers.dev/?url="
 
     private let session: URLSession
 
@@ -25,8 +25,8 @@ public final class AnimeScraperEngine {
         return URL(string: proxyBase + encoded) ?? url
     }
 
-    private func makeURLRequest(url: URL, referer: String? = nil) -> URLRequest {
-        let targetURL = AnimeScraperEngine.proxiedURL(for: url)
+    private func makeURLRequest(url: URL, useProxy: Bool = false, referer: String? = nil) -> URLRequest {
+        let targetURL = useProxy ? AnimeScraperEngine.proxiedURL(for: url) : url
         var request = URLRequest(url: targetURL)
         request.setValue(desktopUA, forHTTPHeaderField: "User-Agent")
         request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8", forHTTPHeaderField: "Accept")
@@ -37,8 +37,8 @@ public final class AnimeScraperEngine {
         return request
     }
 
-    private func makePOSTRequest(url: URL, bodyData: Data, referer: String? = nil) -> URLRequest {
-        let targetURL = AnimeScraperEngine.proxiedURL(for: url)
+    private func makePOSTRequest(url: URL, bodyData: Data, useProxy: Bool = false, referer: String? = nil) -> URLRequest {
+        let targetURL = useProxy ? AnimeScraperEngine.proxiedURL(for: url) : url
         var request = URLRequest(url: targetURL)
         request.httpMethod = "POST"
         request.httpBody = bodyData
@@ -60,7 +60,7 @@ public final class AnimeScraperEngine {
             return
         }
 
-        let request = makeURLRequest(url: url)
+        let request = makeURLRequest(url: url, useProxy: source.useProxy)
         session.dataTask(with: request) { data, _, error in
             if let error = error {
                 DispatchQueue.main.async { completion(.failure(error)) }
@@ -94,7 +94,7 @@ public final class AnimeScraperEngine {
             return
         }
 
-        let request = makeURLRequest(url: url)
+        let request = makeURLRequest(url: url, useProxy: source.useProxy)
         session.dataTask(with: request) { data, _, error in
             if let error = error {
                 DispatchQueue.main.async { completion(.failure(error)) }
@@ -124,7 +124,7 @@ public final class AnimeScraperEngine {
         for card in cards.array() {
             var linkEl = try? card.select(source.linkSelector).first()
             if let el = linkEl, let href = try? el.attr("href"), href.contains("/genre/") || href.contains("/tag/") {
-                if let betterLink = try? card.select("a[href*='/anime/'], a[href*='/watch/'], a[href*='/series/'], .animposx a").first() {
+                if let betterLink = try? card.select("a[href*='/anime/'], a[href*='/watch/'], a[href*='/series/'], a[href*='-Videos/'], .animposx a").first() {
                     linkEl = betterLink
                 }
             }
@@ -169,7 +169,7 @@ public final class AnimeScraperEngine {
             return
         }
 
-        let request = makeURLRequest(url: url)
+        let request = makeURLRequest(url: url, useProxy: source.useProxy)
         session.dataTask(with: request) { data, _, error in
             if let error = error {
                 DispatchQueue.main.async { completion(.failure(error)) }
@@ -253,7 +253,7 @@ public final class AnimeScraperEngine {
             return
         }
 
-        let request = makeURLRequest(url: url)
+        let request = makeURLRequest(url: url, useProxy: source.useProxy)
         session.dataTask(with: request) { [weak self] data, _, error in
             guard let self = self else { return }
             if let error = error {
@@ -268,8 +268,9 @@ public final class AnimeScraperEngine {
             }
 
             var videoSources: [VideoSource] = []
+            let lock = NSLock()
 
-            // 1. Direct MP4 and mirror resolution from the episode page (e.g. .download-eps, Pixeldrain)
+            // 1. Direct MP4 and mirror resolution from the episode page (e.g. CartoonsArea direct MP4, Pixeldrain)
             let directSources = DirectMP4Resolver.shared.resolveFromHTML(html, pageURL: url)
             videoSources.append(contentsOf: directSources)
 
@@ -278,12 +279,11 @@ public final class AnimeScraperEngine {
                 return
             }
 
-            // 2. Parse WordPress AJAX player options (e.g. Samehadaku east_player_option)
+            // 2. Parse server options / AJAX player options (e.g. Samehadaku east_player_option)
             let serverSelector = source.serverItemSelector ?? ".server-item, .east_player_option, [data-post]"
             let serverElements = (try? doc.select(serverSelector)) ?? Elements()
 
             let group = DispatchGroup()
-            let lock = NSLock()
 
             for serverEl in serverElements.array() {
                 guard let post = try? serverEl.attr("data-post"), !post.isEmpty else { continue }
@@ -301,9 +301,7 @@ public final class AnimeScraperEngine {
                     quality = .high1080p
                 } else if lower.contains("720") {
                     quality = .normal720p
-                } else if lower.contains("480") {
-                    quality = .compact480p
-                } else if lower.contains("360") {
+                } else if lower.contains("480") || lower.contains("360") {
                     quality = .compact480p
                 } else {
                     quality = .normal720p
@@ -316,7 +314,7 @@ public final class AnimeScraperEngine {
                 let formBody = "action=\(source.ajaxAction ?? "player_ajax")&post=\(post)&nume=\(nume)&type=\(type)"
                 guard let bodyData = formBody.data(using: .utf8) else { continue }
 
-                let ajaxReq = self.makePOSTRequest(url: ajaxURL, bodyData: bodyData, referer: episode.episodeURL)
+                let ajaxReq = self.makePOSTRequest(url: ajaxURL, bodyData: bodyData, useProxy: source.useProxy, referer: episode.episodeURL)
 
                 group.enter()
                 self.session.dataTask(with: ajaxReq) { ajaxData, _, _ in
@@ -325,14 +323,13 @@ public final class AnimeScraperEngine {
                           let rawResp = String(data: ajaxData, encoding: .utf8) else { return }
 
                     if let parsed = self.extractStreamFromAJAX(html: rawResp, pageURL: episode.episodeURL) {
-                        let finalStreamURL = AnimeScraperEngine.proxiedURL(for: parsed.url)
-                        let isDirect = parsed.isDirect
+                        let finalStreamURL = source.useProxy ? AnimeScraperEngine.proxiedURL(for: parsed.url) : parsed.url
                         let vs = VideoSource(
                             serverName: serverTitle,
                             quality: quality,
                             streamURL: finalStreamURL,
                             referer: episode.episodeURL,
-                            isDirectDownload: isDirect,
+                            isDirectDownload: parsed.isDirect,
                             format: .mp4,
                             headers: [
                                 "Referer": episode.episodeURL,
@@ -370,11 +367,12 @@ public final class AnimeScraperEngine {
                         }
                     } else if DirectMP4Resolver.shared.isDirectMediaURL(iframeURL) {
                         let isHLS = iframeURL.pathExtension.lowercased() == "m3u8"
+                        let finalURL = source.useProxy ? AnimeScraperEngine.proxiedURL(for: iframeURL) : iframeURL
                         lock.lock()
                         videoSources.append(VideoSource(
                             serverName: iframeURL.host ?? "Player",
                             quality: .normal720p,
-                            streamURL: AnimeScraperEngine.proxiedURL(for: iframeURL),
+                            streamURL: finalURL,
                             referer: episode.episodeURL,
                             isDirectDownload: !isHLS,
                             format: isHLS ? .hls : .mp4,
@@ -385,7 +383,7 @@ public final class AnimeScraperEngine {
                 }
             }
 
-            // Wait up to 5 seconds for background AJAX server resolution
+            // Wait up to 5 seconds for background AJAX server resolution before returning
             DispatchQueue.global(qos: .userInitiated).async {
                 _ = group.wait(timeout: .now() + 5.0)
                 DispatchQueue.main.async {
@@ -399,9 +397,13 @@ public final class AnimeScraperEngine {
     private func extractStreamFromAJAX(html: String, pageURL: String) -> (url: URL, isDirect: Bool)? {
         // 1. Clean malformed closing tags inside quotes from CMS typos
         var cleaned = html.replacingOccurrences(of: "\\/", with: "/")
-        if let regexIframe = try? NSRegularExpression(pattern: #"\"[^>]*></iframe>"#, options: .caseInsensitive) {
+        if let regexIframe = try? NSRegularExpression(pattern: #"\"\s*(?:FRAMEBORDER=[^>]*|frameborder=[^>]*)\s*></iframe>"#, options: .caseInsensitive) {
             let ns = cleaned as NSString
             cleaned = regexIframe.stringByReplacingMatches(in: cleaned, options: [], range: NSRange(location: 0, length: ns.length), withTemplate: "")
+        }
+        if let regexIframe2 = try? NSRegularExpression(pattern: #"\"[^>]*></iframe>"#, options: .caseInsensitive) {
+            let ns = cleaned as NSString
+            cleaned = regexIframe2.stringByReplacingMatches(in: cleaned, options: [], range: NSRange(location: 0, length: ns.length), withTemplate: "")
         }
         cleaned = cleaned.replacingOccurrences(of: "\"></iframe>", with: "")
         cleaned = cleaned.replacingOccurrences(of: "\">", with: "")
@@ -443,7 +445,7 @@ public final class AnimeScraperEngine {
     private func resolveStreamtapeSync(iframeURL: URL) -> VideoSource? {
         let semaphore = DispatchSemaphore(value: 0)
         var result: VideoSource?
-        let req = makeURLRequest(url: iframeURL, referer: iframeURL.absoluteString)
+        let req = makeURLRequest(url: iframeURL, useProxy: false, referer: iframeURL.absoluteString)
 
         session.dataTask(with: req) { data, _, _ in
             if let data = data, let html = String(data: data, encoding: .utf8) {
@@ -452,14 +454,14 @@ public final class AnimeScraperEngine {
             semaphore.signal()
         }.resume()
 
-        _ = semaphore.wait(timeout: .now() + 4.0)
+        _ = semaphore.wait(timeout: .now() + 5.0)
         return result
     }
 
     private func resolveFilemoonSync(iframeURL: URL) -> VideoSource? {
         let semaphore = DispatchSemaphore(value: 0)
         var result: VideoSource?
-        let req = makeURLRequest(url: iframeURL, referer: iframeURL.absoluteString)
+        let req = makeURLRequest(url: iframeURL, useProxy: false, referer: iframeURL.absoluteString)
 
         session.dataTask(with: req) { data, _, _ in
             if let data = data, let html = String(data: data, encoding: .utf8) {
@@ -468,7 +470,8 @@ public final class AnimeScraperEngine {
             semaphore.signal()
         }.resume()
 
-        _ = semaphore.wait(timeout: .now() + 4.0)
+        _ = semaphore.wait(timeout: .now() + 5.0)
         return result
     }
 }
+

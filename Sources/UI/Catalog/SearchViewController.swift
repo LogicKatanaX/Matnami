@@ -18,6 +18,16 @@ public final class SearchViewController: UIViewController, UISearchBarDelegate, 
         setupSearchBar()
         setupCollectionView()
         setupMessageLabel()
+
+        NotificationCenter.default.addObserver(self, selector: #selector(handleAppReset), name: .appDidReset, object: nil)
+    }
+
+    @objc private func handleAppReset() {
+        searchBar.text = ""
+        searchResults.removeAll()
+        collectionView.reloadData()
+        messageLabel.text = "Search across thousands of anime"
+        messageLabel.isHidden = false
     }
 
     private func setupSearchBar() {

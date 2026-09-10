@@ -37,6 +37,49 @@ public final class StorageManager {
         return false
     }
 
+    /// Deletes all files in the Downloads folder
+    @discardableResult
+    public func deleteAllDownloads() -> Bool {
+        do {
+            if FileManager.default.fileExists(atPath: downloadsDirectory.path) {
+                try FileManager.default.removeItem(at: downloadsDirectory)
+            }
+            try FileManager.default.createDirectory(at: downloadsDirectory, withIntermediateDirectories: true, attributes: nil)
+            return true
+        } catch {
+            print("StorageManager: Delete all error: \(error)")
+            return false
+        }
+    }
+
+    /// Deletes files in Downloads matching a specific filename prefix (e.g. anime ID)
+    @discardableResult
+    public func deleteFiles(matchingPrefix prefix: String) -> Int {
+        guard let files = try? FileManager.default.contentsOfDirectory(at: downloadsDirectory, includingPropertiesForKeys: nil) else {
+            return 0
+        }
+        var count = 0
+        for file in files where file.lastPathComponent.hasPrefix(prefix) {
+            do {
+                try FileManager.default.removeItem(at: file)
+                count += 1
+            } catch {
+                print("StorageManager: Failed to delete \(file): \(error)")
+            }
+        }
+        return count
+    }
+
+    /// Clears temporary cache files from NSTemporaryDirectory
+    public func clearTempDirectory() {
+        let tempPath = NSTemporaryDirectory()
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: tempPath) else { return }
+        for file in files {
+            let fullPath = (tempPath as NSString).appendingPathComponent(file)
+            try? FileManager.default.removeItem(atPath: fullPath)
+        }
+    }
+
     /// Returns file size in bytes
     public func fileSize(fileName: String) -> Int64 {
         let path = localFileURL(for: fileName).path

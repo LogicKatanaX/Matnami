@@ -25,26 +25,26 @@ public final class SourceManager {
             // 2. Fallback to bundled sources.json
             self.sources = bundleList
         } else {
-            // 3. Fallback hardcoded defaults
+            // 3. Fallback hardcoded defaults (CartoonsArea Japanese Subbed & English Dubbed)
             self.sources = [
                 AnimeSourceConfig(
-                    id: "samehadaku",
-                    name: "Samehadaku",
-                    baseURL: "https://v2.samehadaku.how",
-                    catalogPattern: "https://v2.samehadaku.how/daftar-anime-2/page/{page}/",
-                    searchPattern: "https://v2.samehadaku.how/?s={query}",
-                    cardSelector: ".animepost, .animpost, article.animpost",
-                    linkSelector: "a[href*='/anime/'], .animposx a",
-                    titleSelector: ".title, .tt h4, h2",
-                    coverSelector: ".content-thumb img, img",
-                    scoreSelector: ".score",
-                    synopsisSelector: ".desc, .entry-content",
-                    episodeListSelector: ".lstepsiode ul li, .episodelst ul li",
+                    id: "cartoonsarea",
+                    name: "CartoonsArea",
+                    baseURL: "https://www.cartoonsarea.cc",
+                    catalogPattern: "https://www.cartoonsarea.cc/Japanese-Dubbed-Videos/A-Subbed-Series/",
+                    searchPattern: "https://www.cartoonsarea.cc/?s={query}",
+                    cardSelector: ".directory-list a[href*='-Series/']",
+                    linkSelector: "a[href]",
+                    titleSelector: "h2, h3, a",
+                    coverSelector: "img",
+                    scoreSelector: nil,
+                    synopsisSelector: ".desc, p",
+                    episodeListSelector: "a[href*='Season-'], a[href*='Episode-'], a[href*='-Video/']",
                     episodeLinkSelector: "a",
-                    episodeTitleSelector: ".eps a, .title a, a",
-                    playerIframeSelector: "#pembed iframe, .player-embed iframe",
-                    serverItemSelector: ".server-item, .east_player_option",
-                    ajaxAction: "player_ajax",
+                    episodeTitleSelector: "a",
+                    playerIframeSelector: nil,
+                    serverItemSelector: "a[href*='.mp4'], a[href*='/USER-DATA/']",
+                    ajaxAction: nil,
                     useProxy: false
                 )
             ]
@@ -60,6 +60,17 @@ public final class SourceManager {
             self.activeSource = found
             UserDefaults.standard.set(id, forKey: activeSourceIdKey)
             NotificationCenter.default.post(name: .sourceDidChange, object: found)
+        }
+    }
+
+    /// Resets sources to bundled defaults and clears cached OTA configurations
+    public func resetToDefaultSources() {
+        UserDefaults.standard.removeObject(forKey: userDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: activeSourceIdKey)
+        loadSources()
+        if let first = sources.first {
+            self.activeSource = first
+            NotificationCenter.default.post(name: .sourceDidChange, object: first)
         }
     }
 

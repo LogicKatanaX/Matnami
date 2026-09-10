@@ -49,7 +49,7 @@ public final class ImageLoader {
         let proxiedURL = AnimeScraperEngine.proxiedURL(for: url)
         var request = URLRequest(url: proxiedURL)
         request.setValue(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
             forHTTPHeaderField: "User-Agent"
         )
 

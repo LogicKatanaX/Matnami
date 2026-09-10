@@ -180,6 +180,54 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate {
         }
     }
 
+    /// Deletes all downloaded episodes for a specific anime series
+    public func deleteDownloads(forAnimeId animeId: String) {
+        let matching = items.filter { $0.animeId == animeId }
+        for it in matching {
+            if let task = activeTasks[it.id] {
+                task.cancel()
+                activeTasks.removeValue(forKey: it.id)
+            }
+            resumeDataMap.removeValue(forKey: it.id)
+            _ = StorageManager.shared.deleteFile(fileName: it.localFileName)
+        }
+        items.removeAll(where: { $0.animeId == animeId })
+        saveMetadata()
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .downloadStateChanged, object: nil)
+        }
+    }
+
+    /// Deletes all downloaded episodes across all anime
+    public func deleteAllDownloads() {
+        for task in activeTasks.values {
+            task.cancel()
+        }
+        activeTasks.removeAll()
+        resumeDataMap.removeAll()
+        _ = StorageManager.shared.deleteAllDownloads()
+        items.removeAll()
+        saveMetadata()
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .downloadStateChanged, object: nil)
+        }
+    }
+
+    /// Completely resets the download engine, cancels tasks, and deletes metadata
+    public func resetDownloadEngine() {
+        for task in activeTasks.values {
+            task.cancel()
+        }
+        activeTasks.removeAll()
+        resumeDataMap.removeAll()
+        _ = StorageManager.shared.deleteAllDownloads()
+        items.removeAll()
+        try? FileManager.default.removeItem(at: metadataFileURL)
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .downloadStateChanged, object: nil)
+        }
+    }
+
     private func updateItemState(id: String, state: DownloadState, errorMessage: String? = nil) {
         guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
         items[idx].state = state

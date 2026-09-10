@@ -14,6 +14,10 @@ public final class DirectMP4Resolver {
         if ext == "mp4" || ext == "m3u8" {
             return true
         }
+        let path = url.path
+        if path.contains("USER-DATA") || path.contains(".mp4") {
+            return true
+        }
         let host = url.host?.lowercased() ?? ""
         if host.contains("wibufile.com") || host.contains("blogger.com") || host.contains("googleusercontent.com") {
             return true
@@ -60,7 +64,7 @@ public final class DirectMP4Resolver {
             }
         }
 
-        // 2. Scan download mirror buttons (Gofile, Pixeldrain, Wibufile, Krakenfiles)
+        // 2. Scan download mirror buttons (CartoonsArea Direct MP4, Pixeldrain, Gofile)
         if let linkElements = try? doc.select("a[href]") {
             for link in linkElements.array() {
                 let href = (try? link.attr("href")) ?? ""
@@ -92,11 +96,10 @@ public final class DirectMP4Resolver {
                 let quality = parseQuality(from: parentText + " " + text + " " + href)
                 let name = host.replacingOccurrences(of: "www.", with: "").capitalized
 
-                let finalURL = AnimeScraperEngine.proxiedURL(for: streamURL)
                 sources.append(VideoSource(
-                    serverName: name.isEmpty ? "Mirror" : name,
+                    serverName: name.isEmpty ? "Direct MP4" : name,
                     quality: quality,
-                    streamURL: finalURL,
+                    streamURL: streamURL,
                     referer: pageURL.absoluteString,
                     isDirectDownload: isDirect,
                     format: .mp4,

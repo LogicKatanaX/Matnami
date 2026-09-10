@@ -33,6 +33,12 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
         loadEpisodes()
     }
 
+    public override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        updateNavBarButtons()
+        tableView.reloadData()
+    }
+
     private func setupTableView() {
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.backgroundColor = AppTheme.background
@@ -127,6 +133,7 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
         NotificationCenter.default.addObserver(self, selector: #selector(handleDownloadNotification), name: .downloadProgress, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleDownloadNotification), name: .downloadCompleted, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleDownloadNotification), name: .downloadStateChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleDownloadNotification), name: .appDidReset, object: nil)
     }
 
     @objc private func handleDownloadNotification() {
@@ -157,6 +164,43 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
     }
 
     // MARK: - UITableViewDataSource
+    public override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        updateNavBarButtons()
+        tableView.reloadData()
+    }
+
+    private func updateNavBarButtons() {
+        let hasDownloads = DownloadManager.shared.items.contains { $0.animeId == anime.id }
+        if hasDownloads {
+            navigationItem.rightBarButtonItem = UIBarButtonItem(
+                title: "🗑️ Clean",
+                style: .plain,
+                target: self,
+                action: #selector(confirmDeleteAnimeDownloads)
+            )
+        } else {
+            navigationItem.rightBarButtonItem = nil
+        }
+    }
+
+    @objc private func confirmDeleteAnimeDownloads() {
+        let alert = UIAlertController(
+            title: "Delete All Downloads?",
+            message: "This will remove all offline episodes downloaded for '\(anime.title)' from your iPad.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+        alert.addAction(UIAlertAction(title: "Delete All", style: .destructive) { [weak self] _ in
+            guard let self = self else { return }
+            DownloadManager.shared.deleteDownloads(forAnimeId: self.anime.id)
+            self.updateNavBarButtons()
+            self.tableView.reloadData()
+        })
+        present(alert, animated: true)
+    }
+
+    // MARK: - UITableViewDataSource
     public func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         return episodes.count
     }
@@ -167,73 +211,63 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
         let item = DownloadManager.shared.item(for: ep.id)
 
         cell.configure(with: ep, downloadItem: item)
-        cell.onPlayAction = { [weak self] in
-            self?.handlePlayEpisode(ep)
+        cell.onActionTapped = { [weak self] in
+            self?.handleEpisodeAction(ep)
         }
-        cell.onDownloadAction = { [weak self] in
-            self?.handleDownloadEpisode(ep)
+        cell.onDeleteTapped = { [weak self] in
+            self?.confirmDeleteSingleEpisode(ep)
         }
 
         return cell
     }
 
     public func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
         let ep = episodes[indexPath.row]
-        handlePlayEpisode(ep)
+        handleEpisodeAction(ep)
     }
 
     // MARK: - Actions
-    private func handlePlayEpisode(_ episode: Episode) {
-        // 1. Check if offline file exists
-        if let localURL = DownloadManager.shared.localPlaybackURL(for: episode.id) {
-            let playerVC = VideoPlayerViewController(
-                animeTitle: anime.title,
-                episodeTitle: episode.title,
-                mediaURL: localURL,
-                isOffline: true
-            )
-            present(playerVC, animated: true)
-            return
-        }
-
-        // 2. Fetch stream servers
-        guard let source = SourceManager.shared.activeSource else { return }
-        activityIndicator.startAnimating()
-
-        AnimeScraperEngine.shared.fetchEpisodeSources(source: source, episode: episode) { [weak self] result in
-            guard let self = self else { return }
-            self.activityIndicator.stopAnimating()
-
-            switch result {
-            case .success(let sources):
-                guard !sources.isEmpty else {
-                    self.showError(message: "No video sources found for this episode.")
-                    return
-                }
-                self.presentSourcePicker(sources: sources, episode: episode, isForDownload: false)
-
-            case .failure(let error):
-                self.showError(message: "Failed to resolve stream:\n\(error.localizedDescription)")
-            }
-        }
-    }
-
-    private func handleDownloadEpisode(_ episode: Episode) {
+    private func handleEpisodeAction(_ episode: Episode) {
         let item = DownloadManager.shared.item(for: episode.id)
 
         if let it = item {
-            if it.state == .completed {
-                handlePlayEpisode(episode)
+            switch it.state {
+            case .completed:
+                playOfflineEpisode(episode)
                 return
-            } else if it.state == .downloading {
+            case .downloading:
                 DownloadManager.shared.pauseDownload(id: episode.id)
                 return
-            } else if it.state == .paused {
+            case .paused, .failed:
                 DownloadManager.shared.resumeDownload(id: episode.id)
+                return
+            case .queued:
+                DownloadManager.shared.cancelDownload(id: episode.id)
                 return
             }
         }
 
+        // Not yet downloaded: resolve download sources and qualities
+        resolveDownloadSources(for: episode)
+    }
+
+    private func playOfflineEpisode(_ episode: Episode) {
+        guard let localURL = DownloadManager.shared.localPlaybackURL(for: episode.id) else {
+            showError(message: "Offline video file is missing from iPad storage.")
+            return
+        }
+
+        let playerVC = VideoPlayerViewController(
+            animeTitle: anime.title,
+            episodeTitle: episode.title,
+            mediaURL: localURL,
+            isOffline: true
+        )
+        present(playerVC, animated: true)
+    }
+
+    private func resolveDownloadSources(for episode: Episode) {
         guard let source = SourceManager.shared.activeSource else { return }
         activityIndicator.startAnimating()
 
@@ -247,19 +281,23 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
                     self.showError(message: "No download sources available for this episode.")
                     return
                 }
-                self.presentSourcePicker(sources: sources, episode: episode, isForDownload: true)
+                self.presentDownloadPicker(sources: sources, episode: episode)
 
             case .failure(let error):
-                self.showError(message: "Failed to resolve servers:\n\(error.localizedDescription)")
+                self.showError(message: "Failed to resolve download servers:\n\(error.localizedDescription)")
             }
         }
     }
 
-    private func presentSourcePicker(sources: [VideoSource], episode: Episode, isForDownload: Bool) {
-        let title = isForDownload ? "Choose Download Quality / Server" : "Select Streaming Server"
-        let sheet = UIAlertController(title: title, message: episode.title, preferredStyle: .actionSheet)
+    private func presentDownloadPicker(sources: [VideoSource], episode: Episode) {
+        let sheet = UIAlertController(
+            title: "Download Quality",
+            message: "\(episode.title)\nSelect resolution to download offline:",
+            preferredStyle: .actionSheet
+        )
+
         let preferred = AppSettings.shared.preferredQuality
-        // Sort matching preferred quality to the top, then 720p, then 1080p, then 480p
+        // Sort matching preferred quality to the top
         let sortedSources = sources.sorted { a, b in
             if a.quality == preferred && b.quality != preferred { return true }
             if b.quality == preferred && a.quality != preferred { return false }
@@ -270,20 +308,12 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
             let prefTag = (s.quality == preferred) ? " ★ Preferred" : ""
             let directTag = s.isDirectDownload ? " ⚡Direct" : ""
             let label = "\(s.serverName) [\(s.quality.displayName)]\(prefTag)\(directTag)"
+
             sheet.addAction(UIAlertAction(title: label, style: .default) { [weak self] _ in
                 guard let self = self else { return }
-                if isForDownload {
-                    DownloadManager.shared.startDownload(anime: self.anime, episode: episode, videoSource: s)
-                } else {
-                    let playerVC = VideoPlayerViewController(
-                        animeTitle: self.anime.title,
-                        episodeTitle: episode.title,
-                        mediaURL: s.streamURL,
-                        httpHeaders: s.effectiveHeaders,
-                        isOffline: false
-                    )
-                    self.present(playerVC, animated: true)
-                }
+                DownloadManager.shared.startDownload(anime: self.anime, episode: episode, videoSource: s)
+                self.updateNavBarButtons()
+                self.tableView.reloadData()
             })
         }
 
@@ -291,11 +321,27 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
 
         if let popover = sheet.popoverPresentationController {
             popover.sourceView = self.view
-            popover.sourceRect = CGRect(x: self.view.bounds.midX, y: self.view.bounds.midY, width: 0, height: 0)
+            popover.sourceRect = CGRect(x: self.view.bounds.midX, y: self.view.bounds.midY, width: 1, height: 1)
             popover.permittedArrowDirections = []
         }
 
         present(sheet, animated: true)
+    }
+
+    private func confirmDeleteSingleEpisode(_ episode: Episode) {
+        let alert = UIAlertController(
+            title: "Delete Episode Download?",
+            message: "Remove offline file for '\(episode.title)' to free storage?",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+        alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in
+            guard let self = self else { return }
+            DownloadManager.shared.deleteDownload(id: episode.id)
+            self.updateNavBarButtons()
+            self.tableView.reloadData()
+        })
+        present(alert, animated: true)
     }
 
     private func showError(message: String) {
