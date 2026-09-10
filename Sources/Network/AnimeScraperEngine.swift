@@ -5,7 +5,9 @@ public final class AnimeScraperEngine {
     public static let shared = AnimeScraperEngine()
 
     private let desktopUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    private let proxyBase = "https://manga-proxy.santamcyber.workers.dev/?url="
+    private var proxyBase: String {
+        return AppSettings.shared.proxyBaseUrl
+    }
 
     private let session: URLSession
 

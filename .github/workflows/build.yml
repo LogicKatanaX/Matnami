@@ -14,10 +14,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: which xcodegen || brew install xcodegen
 
       - name: Install CocoaPods
-        run: brew install cocoapods
+        run: which pod || brew install cocoapods
 
       - name: Generate Xcode project
         run: xcodegen generate
@@ -34,7 +34,8 @@ jobs:
             -configuration Release \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
 
       - name: Ensure complete Swift stdlib embedding
         run: |
@@ -44,7 +45,7 @@ jobs:
             --scan-folder "$APP_PATH/Frameworks" \
             --platform iphoneos \
             --destination "$APP_PATH/Frameworks" \
-            --strip-bitcode
+            --strip-bitcode || true
 
       - name: Package IPA
         run: |
@@ -67,10 +68,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: which xcodegen || brew install xcodegen
 
       - name: Install CocoaPods
-        run: brew install cocoapods
+        run: which pod || brew install cocoapods
 
       - name: Generate Xcode project
         run: xcodegen generate

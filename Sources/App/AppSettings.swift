@@ -44,5 +44,17 @@ public final class AppSettings {
             defaults.set(newValue, forKey: keyOTAUrl)
         }
     }
+
+    private let keyProxyUrl = "com.matnami.pref_proxy_url"
+
+    /// Cloudflare Worker Reverse Proxy Base Endpoint
+    public var proxyBaseUrl: String {
+        get {
+            return defaults.string(forKey: keyProxyUrl) ?? "https://manga-proxy.santamcyber.workers.dev/?url="
+        }
+        set {
+            defaults.set(newValue, forKey: keyProxyUrl)
+        }
+    }
 }
 

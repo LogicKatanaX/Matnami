@@ -209,8 +209,6 @@ class WebsiteAuditor:
 
         cards = soup.select(card_sel)
         if not cards:
-            # Fallback scan
-            for test in ["article", ".card", ".box", ".movie", ".film", ".thumb"]:
             # Fallback scan 1: common classes
             for test in ["article", ".card", ".box", ".movie", ".film", ".thumb", ".item", ".poster"]:
                 found = soup.select(test)
@@ -234,7 +232,6 @@ class WebsiteAuditor:
 
         # Parse first card
         first = cards[0]
-        link_el = first.select_one("a[href]")
         link_el = first if first.name == "a" else first.select_one("a[href]")
         title_el = first.select_one("h2, h3, h4, .title, .tt, .entry-title") or link_el
         img_el = first.select_one("img")
@@ -282,7 +279,6 @@ class WebsiteAuditor:
 
         try:
             resp = self.session.get(fetch_url, timeout=(TIMEOUT_CONNECT, TIMEOUT_READ))
-            if resp.status_code != 200:
             if (resp.status_code != 200 or "Just a moment..." in resp.text or "challenge-running" in resp.text) and not use_proxy:
                 # Automatic Cloudflare Worker proxy fallback
                 proxy_url = PROXIES_BASE + urllib.parse.quote(detail_url, safe="")
@@ -296,7 +292,6 @@ class WebsiteAuditor:
             soup = BeautifulSoup(resp.text, "html.parser")
 
             # Synopsis
-            syn_el = soup.select_one(".desc, .entry-content, .sinopc, .synopsis, #synopsis")
             syn_el = soup.select_one(".desc, .entry-content, .sinopc, .synopsis, #synopsis, .film-description")
             synopsis = syn_el.text.strip()[:100] if syn_el else "N/A"
             details["synopsis_snippet"] = synopsis
@@ -304,13 +299,10 @@ class WebsiteAuditor:
             # Episodes
             ep_sel = existing_config.get("episodeListSelector") if existing_config else None
             if not ep_sel:
-                ep_sel = ".lstepsiode ul li, .episodelst ul li, .episodelist ul li, #episode_list li, .eph-num, .listeps ul li"
                 ep_sel = ".lstepsiode ul li, .episodelst ul li, .episodelist ul li, #episode_list li, .eph-num, .listeps ul li, .episodes-ul li, .ssl-item, a[href*='/watch/'], a[href*='/episode/']"
 
             ep_items = soup.select(ep_sel)
             if not ep_items:
-                # Fallback search for any episode links
-                ep_items = soup.select("a[href*='/episode'], a[href*='-episode-']")
                 ep_items = soup.select("a[href*='/episode'], a[href*='-episode-'], a[href*='/watch/']")
 
             episodes = []
@@ -319,14 +311,12 @@ class WebsiteAuditor:
                 if link and link.get("href"):
                     ep_url = urllib.parse.urljoin(detail_url, link.get("href"))
                     ep_title = link.text.strip() or f"Episode {idx + 1}"
-                    episodes.append({"title": ep_title, "url": ep_url})
                     if not any(e["url"] == ep_url for e in episodes):
                         episodes.append({"title": ep_title, "url": ep_url})
 
             if not episodes:
                 return HopTestResult("Detail & Episodes", False, 5, WEIGHT_DETAIL, 0, details, messages, "No episode links discovered"), []
 
-            messages.append(f"Discovered {len(episodes)} episodes (Sample: {episodes[0]['title']}).")
             messages.append(f"Discovered {len(episodes)} episodes (Sample: {episodes[0]['title'][:30]}).")
             details["episode_count"] = len(episodes)
             details["sample_episode_url"] = episodes[0]["url"]
@@ -350,7 +340,6 @@ class WebsiteAuditor:
 
         try:
             resp = self.session.get(fetch_url, timeout=(TIMEOUT_CONNECT, TIMEOUT_READ))
-            if resp.status_code != 200:
             if (resp.status_code != 200 or "Just a moment..." in resp.text or "challenge-running" in resp.text) and not use_proxy:
                 proxy_url = PROXIES_BASE + urllib.parse.quote(ep_url, safe="")
                 resp = self.session.get(proxy_url, timeout=(TIMEOUT_CONNECT, TIMEOUT_READ))
@@ -366,7 +355,6 @@ class WebsiteAuditor:
             directs = DirectMediaResolver.resolve(resp.text, ep_url)
             discovered.extend(directs)
 
-            # 2. Extract iframes
             # 2. Extract iframes (supports nested iframes)
             iframes = soup.select("iframe[src], iframe[data-src]")
             for iframe in iframes:
@@ -375,11 +363,6 @@ class WebsiteAuditor:
                     continue
                 full_src = urllib.parse.urljoin(ep_url, src)
 
-                if StreamtapeResolver.can_handle(full_src):
-                    messages.append(f"Found Streamtape embed: {full_src}")
-                    # Try resolving
-                    try:
-                        emb_resp = self.session.get(full_src, headers={"Referer": ep_url}, timeout=8)
                 # Follow iframe to see if it embeds a video or player
                 try:
                     iframe_fetch = PROXIES_BASE + urllib.parse.quote(full_src, safe="") if use_proxy else full_src
@@ -393,21 +376,11 @@ class WebsiteAuditor:
                         res = StreamtapeResolver.resolve(emb_resp.text, full_src)
                         if res:
                             discovered.append(res)
-                    except Exception:
-                        pass
-
-                elif FilemoonResolver.can_handle(full_src):
-                    messages.append(f"Found Filemoon embed: {full_src}")
-                    try:
-                        emb_resp = self.session.get(full_src, headers={"Referer": ep_url}, timeout=8)
                     elif FilemoonResolver.can_handle(full_src):
                         messages.append(f"Found Filemoon embed: {full_src}")
                         res = FilemoonResolver.resolve(emb_resp.text, full_src)
                         if res:
                             discovered.append(res)
-                    except Exception:
-                        pass
-                else:
                     else:
                         # Check if this iframe embeds another inner iframe
                         inner_soup = BeautifulSoup(emb_resp.text, "html.parser")

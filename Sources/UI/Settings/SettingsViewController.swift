@@ -27,7 +27,7 @@ public final class SettingsViewController: UITableViewController {
         case 0: return qualityOptions.count // Video Quality
         case 1: return 2 // Storage & Cache
         case 2: return 2 // Sources & OTA
-        case 3: return 1 // Network Proxy
+        case 3: return 2 // Network Proxy (Toggle & Endpoint)
         case 4: return 2 // About & Device info
         default: return 0
         }
@@ -92,12 +92,20 @@ public final class SettingsViewController: UITableViewController {
             }
 
         case 3:
-            cell.textLabel?.text = "Cloudflare Worker Proxy"
-            let switchView = UISwitch()
-            switchView.isOn = AppSettings.shared.useProxyByDefault
-            switchView.onTintColor = AppTheme.primaryAccent
-            switchView.addTarget(self, action: #selector(toggleProxy(_:)), for: .valueChanged)
-            cell.accessoryView = switchView
+            if indexPath.row == 0 {
+                cell.textLabel?.text = "Cloudflare Worker Proxy"
+                let switchView = UISwitch()
+                switchView.isOn = AppSettings.shared.useProxyByDefault
+                switchView.onTintColor = AppTheme.primaryAccent
+                switchView.addTarget(self, action: #selector(toggleProxy(_:)), for: .valueChanged)
+                cell.accessoryView = switchView
+            } else {
+                cell.textLabel?.text = "Worker Endpoint"
+                let urlStr = AppSettings.shared.proxyBaseUrl
+                let host = URL(string: urlStr)?.host ?? "Custom"
+                cell.detailTextLabel?.text = host
+                cell.accessoryType = .disclosureIndicator
+            }
 
         case 4:
             if indexPath.row == 0 {
@@ -138,12 +146,50 @@ public final class SettingsViewController: UITableViewController {
                 triggerOTASync()
             }
 
+        case 3:
+            if indexPath.row == 1 {
+                promptEditProxyEndpoint()
+            }
+
         default: break
         }
     }
 
     @objc private func toggleProxy(_ sender: UISwitch) {
         AppSettings.shared.useProxyByDefault = sender.isOn
+    }
+
+    private func promptEditProxyEndpoint() {
+        let alert = UIAlertController(title: "Worker Endpoint",
+                                      message: "Enter the base URL of your Cloudflare Worker.\nMust end with '?url='",
+                                      preferredStyle: .alert)
+        alert.addTextField { tf in
+            tf.text = AppSettings.shared.proxyBaseUrl
+            tf.placeholder = "https://your-worker.workers.dev/?url="
+            tf.keyboardType = .URL
+            tf.autocapitalizationType = .none
+            tf.autocorrectionType = .no
+        }
+        alert.addAction(UIAlertAction(title: "Reset Default", style: .default) { [weak self] _ in
+            AppSettings.shared.proxyBaseUrl = "https://manga-proxy.santamcyber.workers.dev/?url="
+            self?.tableView.reloadData()
+        })
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak self] _ in
+            if let text = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+                var finalUrl = text
+                if !finalUrl.contains("?url=") {
+                    if finalUrl.hasSuffix("/") {
+                        finalUrl += "?url="
+                    } else {
+                        finalUrl += "/?url="
+                    }
+                }
+                AppSettings.shared.proxyBaseUrl = finalUrl
+                self?.tableView.reloadData()
+            }
+        })
+        present(alert, animated: true)
     }
 
     private func confirmClearDownloads() {

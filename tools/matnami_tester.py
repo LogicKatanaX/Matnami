@@ -35,7 +35,6 @@ if sys.platform == "win32":
 
 from matnami.validator import WebsiteAuditor
 from matnami.source_manager import SourceManager
-from matnami.ui import console, print_banner, display_audit_report, display_sources_table
 from matnami.url_extractor import extract_urls_from_text
 from matnami.models import AuditReport
 from matnami.ui import (
@@ -48,12 +47,8 @@ def cmd_list(sm: SourceManager):
     display_sources_table(sources)
 
 def cmd_test(auditor: WebsiteAuditor, sm: SourceManager, url: str):
-    # Check if url belongs to an existing configured source
     sources = sm.list_sources()
     existing = next((s for s in sources if s.get("baseURL", "").rstrip("/") in url.rstrip("/")), None)
-
-    with console.status(f"[bold cyan]Running 4-Hop compatibility audit on {url}...[/bold cyan]"):
-        report = auditor.audit_url(url, existing_config=existing)
 
     console.print(f"[bold cyan]Running 4-Hop compatibility audit on {url}...[/bold cyan]")
     report = auditor.audit_url(url, existing_config=existing)
@@ -70,12 +65,9 @@ def cmd_test_all(auditor: WebsiteAuditor, sm: SourceManager):
     for s in sources:
         url = s.get("baseURL")
         if url:
-            with console.status(f"[bold cyan]Auditing {s.get('name')} ({url})...[/bold cyan]"):
-                report = auditor.audit_url(url, existing_config=s)
             console.print(f"[bold cyan]Auditing {s.get('name')} ({url})...[/bold cyan]")
             report = auditor.audit_url(url, existing_config=s)
             display_audit_report(report)
-            console.print("\n" + "─" * 60 + "\n")
             console.print("\n" + "-" * 60 + "\n")
 
 def cmd_batch(auditor: WebsiteAuditor, sm: SourceManager, raw_text: str, auto_save: bool = False):
@@ -170,10 +162,6 @@ def interactive_menu():
     while True:
         console.print("\n[bold cyan]Dashboard Actions:[/bold cyan]")
         console.print("  [1] List Active Anime Sources (Sources/sources.json)")
-        console.print("  [2] Audit a Website (Test 4-Hop & iPad Air 1 Compatibility)")
-        console.print("  [3] Audit ALL Active Anime Sources")
-        console.print("  [4] Add New Anime Website (Audit + Auto-Save to sources.json)")
-        console.print("  [5] Remove an Anime Source")
         console.print("  [2] Audit a Single Website (Test 4-Hop & iPad Air 1 Compatibility)")
         console.print("  [3] Audit ALL Active Anime Sources in sources.json")
         console.print("  [4] Batch Audit / Dump Website List (Paste markdown links or URL dump)")
@@ -182,7 +170,6 @@ def interactive_menu():
         console.print("  [7] Remove an Anime Source")
         console.print("  [0] Exit")
 
-        choice = console.input("\n[bold yellow]Select an option [0-5]: [/bold yellow]").strip()
         choice = console.input("\n[bold yellow]Select an option [0-7]: [/bold yellow]").strip()
 
         if choice == "1":
@@ -272,4 +259,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
