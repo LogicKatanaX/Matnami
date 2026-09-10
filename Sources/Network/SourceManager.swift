@@ -129,7 +129,7 @@ public final class SourceManager {
             switch result {
             case .success(let animes):
                 let sampleTitle = animes.first?.title ?? "No anime cards found"
-                let firstURL = animes.first?.detailURL.absoluteString ?? "N/A"
+                let firstURL = animes.first?.detailURL ?? "N/A"
                 let summary = SourceTestSummary(
                     sourceName: config.name,
                     latencyMs: latencyMs,
