@@ -26,7 +26,7 @@ public final class SettingsViewController: UITableViewController {
         switch section {
         case 0: return qualityOptions.count // Preferred Video Quality
         case 1: return 3                    // Storage & Deletion Management (Delete All, Clear Cache, Reset App)
-        case 2: return 2                    // Anime Sources & OTA
+        case 2: return 5                    // Anime Sources & Custom Websites
         case 3: return 3                    // Device & Architecture Info
         default: return 0
         }
@@ -36,7 +36,7 @@ public final class SettingsViewController: UITableViewController {
         switch section {
         case 0: return "Preferred Video Quality"
         case 1: return "Storage & Deletion Management"
-        case 2: return "Anime Sources & OTA Updates"
+        case 2: return "Anime Sources & Custom Websites"
         case 3: return "Device & Architecture"
         default: return nil
         }
@@ -89,10 +89,25 @@ public final class SettingsViewController: UITableViewController {
                 cell.textLabel?.text = "Active Source"
                 cell.detailTextLabel?.text = SourceManager.shared.activeSource?.name ?? "None"
                 cell.accessoryType = .disclosureIndicator
-            } else {
+            } else if indexPath.row == 1 {
+                cell.textLabel?.text = "Add Custom Website / Source (+)"
+                cell.detailTextLabel?.text = "URL / JSON"
+                cell.textLabel?.textColor = AppTheme.primaryAccent
+                cell.accessoryType = .disclosureIndicator
+            } else if indexPath.row == 2 {
+                cell.textLabel?.text = "Test Active Source Connection"
+                cell.detailTextLabel?.text = "Run Diagnosis"
+                cell.textLabel?.textColor = AppTheme.success
+                cell.accessoryType = .disclosureIndicator
+            } else if indexPath.row == 3 {
                 cell.textLabel?.text = "Sync Sources from Cloud (OTA)"
                 cell.detailTextLabel?.text = "Check Updates"
                 cell.textLabel?.textColor = AppTheme.primaryAccent
+            } else {
+                cell.textLabel?.text = "Custom OTA Feed URL"
+                let currentUrl = AppSettings.shared.customOTAUrl
+                cell.detailTextLabel?.text = currentUrl.contains("LogicKatanaX") ? "Default (GitHub)" : "Custom"
+                cell.accessoryType = .disclosureIndicator
             }
 
         case 3:
@@ -134,9 +149,15 @@ public final class SettingsViewController: UITableViewController {
 
         case 2:
             if indexPath.row == 0 {
-                promptSelectSource()
-            } else {
+                promptSelectSource(from: indexPath)
+            } else if indexPath.row == 1 {
+                promptAddCustomSource(from: indexPath)
+            } else if indexPath.row == 2 {
+                runSourceConnectionTest()
+            } else if indexPath.row == 3 {
                 triggerOTASync()
+            } else {
+                promptEditOTAUrl()
             }
 
         default: break
@@ -225,20 +246,336 @@ public final class SettingsViewController: UITableViewController {
         showAlert(title: "Application Reset", message: "Matnami has been completely reset to factory install state.")
     }
 
-    private func promptSelectSource() {
+    // MARK: - Custom Source Addition & Testing
+    private func promptAddCustomSource(from indexPath: IndexPath) {
+        let alert = UIAlertController(
+            title: "Add Custom Website / Source",
+            message: "You can add any website by entering its URL or pasting a custom JSON configuration.",
+            preferredStyle: .actionSheet
+        )
+
+        alert.addAction(UIAlertAction(title: "Quick Add by URL (Auto-Configure)", style: .default) { [weak self] _ in
+            self?.promptQuickAddByURL()
+        })
+
+        alert.addAction(UIAlertAction(title: "Import from Clipboard / JSON", style: .default) { [weak self] _ in
+            self?.promptImportJSON()
+        })
+
+        alert.addAction(UIAlertAction(title: "Import from Remote JSON URL", style: .default) { [weak self] _ in
+            self?.promptImportRemoteURL()
+        })
+
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = tableView.cellForRow(at: indexPath) ?? view
+            popover.sourceRect = tableView.cellForRow(at: indexPath)?.bounds ?? CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
+            popover.permittedArrowDirections = [.up, .down]
+        }
+
+        present(alert, animated: true)
+    }
+
+    private func promptQuickAddByURL() {
+        let alert = UIAlertController(
+            title: "Quick Add Website",
+            message: "Enter the website name and base URL. Matnami will auto-configure resilient scraping rules and direct MP4 extraction.",
+            preferredStyle: .alert
+        )
+
+        alert.addTextField { field in
+            field.placeholder = "Source Name (e.g. My Anime)"
+            field.autocapitalizationType = .words
+        }
+
+        alert.addTextField { field in
+            field.placeholder = "Base URL (e.g. https://example.com)"
+            field.keyboardType = .URL
+            field.autocapitalizationType = .none
+        }
+
+        alert.addTextField { field in
+            field.placeholder = "Catalog URL (optional, e.g. /anime/)"
+            field.keyboardType = .URL
+            field.autocapitalizationType = .none
+        }
+
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+        alert.addAction(UIAlertAction(title: "Add Source", style: .default) { [weak self] _ in
+            guard let name = alert.textFields?[0].text?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty,
+                  let rawBase = alert.textFields?[1].text?.trimmingCharacters(in: .whitespacesAndNewlines), !rawBase.isEmpty else {
+                self?.showAlert(title: "Missing Information", message: "Please provide both a name and a valid website URL.")
+                return
+            }
+
+            let base = rawBase.hasSuffix("/") ? String(rawBase.dropLast()) : rawBase
+            let rawCatalog = alert.textFields?[2].text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let catalog: String
+            if rawCatalog.isEmpty {
+                catalog = "\(base)/"
+            } else if rawCatalog.hasPrefix("http://") || rawCatalog.hasPrefix("https://") {
+                catalog = rawCatalog
+            } else {
+                let cleanCat = rawCatalog.hasPrefix("/") ? String(rawCatalog.dropFirst()) : rawCatalog
+                catalog = "\(base)/\(cleanCat)"
+            }
+
+            let sourceId = name.lowercased().replacingOccurrences(of: " ", with: "_").filter { $0.isLetter || $0.isNumber || $0 == "_" }
+
+            let newConfig = AnimeSourceConfig(
+                id: sourceId.isEmpty ? "custom_\(Int(Date().timeIntervalSince1970))" : sourceId,
+                name: name,
+                baseURL: base,
+                catalogPattern: catalog,
+                searchPattern: "\(base)/?s={query}",
+                cardSelector: "article.type-post, article.post, .animepost, .item, .bsx, .detpost, .directory-list a[href], a[href*='-Series/']",
+                linkSelector: "a[href]",
+                titleSelector: "h2.entry-title a, h2, h3, .title, a",
+                coverSelector: "img",
+                scoreSelector: nil,
+                synopsisSelector: ".entry-content, .entry-summary, .desc, p",
+                episodeListSelector: "a[href*='Season-'], a[href*='Episode-'], a[href*='-Video/'], a[href*='/episode/'], a[href*='-episode-']",
+                episodeLinkSelector: "a",
+                episodeTitleSelector: "a",
+                playerIframeSelector: nil,
+                serverItemSelector: "a[href*='.mp4'], source[src*='.mp4'], a[href*='/USER-DATA/']",
+                ajaxAction: nil,
+                useProxy: false
+            )
+
+            SourceManager.shared.addSource(newConfig, makeActive: true)
+            self?.tableView.reloadData()
+
+            let successAlert = UIAlertController(
+                title: "Source Added!",
+                message: "'\(name)' is now your active source. Would you like to run a connectivity test now?",
+                preferredStyle: .alert
+            )
+            successAlert.addAction(UIAlertAction(title: "Later", style: .cancel, handler: nil))
+            successAlert.addAction(UIAlertAction(title: "Test Now", style: .default) { [weak self] _ in
+                self?.runSourceConnectionTest()
+            })
+            self?.present(successAlert, animated: true)
+        })
+
+        present(alert, animated: true)
+    }
+
+    private func promptImportJSON() {
+        let clipboardText = UIPasteboard.general.string ?? ""
+        let isJSONCandidate = clipboardText.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{") ||
+                              clipboardText.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("[")
+
+        let alert = UIAlertController(
+            title: "Import Source from JSON",
+            message: "Paste an AnimeSourceConfig JSON object below or import directly from clipboard.",
+            preferredStyle: .alert
+        )
+
+        alert.addTextField { field in
+            field.placeholder = "{\n  \"id\": \"mysource\",\n  \"name\": ...\n}"
+            if isJSONCandidate {
+                field.text = clipboardText
+            }
+        }
+
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+        alert.addAction(UIAlertAction(title: "Import", style: .default) { [weak self] _ in
+            guard let text = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+                self?.showAlert(title: "Empty Input", message: "Please paste a valid JSON string.")
+                return
+            }
+
+            do {
+                let imported = try SourceManager.shared.importSource(from: text)
+                self?.tableView.reloadData()
+                self?.showAlert(title: "Source Imported!", message: "Successfully imported and activated '\(imported.name)'.")
+            } catch {
+                self?.showAlert(title: "Import Error", message: "Failed to parse JSON: \(error.localizedDescription)")
+            }
+        })
+
+        present(alert, animated: true)
+    }
+
+    private func promptImportRemoteURL() {
+        let alert = UIAlertController(
+            title: "Import from Remote JSON URL",
+            message: "Enter the URL of a raw JSON file (e.g. GitHub Gist or raw JSON file) containing source configurations.",
+            preferredStyle: .alert
+        )
+
+        alert.addTextField { field in
+            field.placeholder = "https://raw.githubusercontent.com/.../sources.json"
+            field.keyboardType = .URL
+            field.autocapitalizationType = .none
+        }
+
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+        alert.addAction(UIAlertAction(title: "Fetch & Import", style: .default) { [weak self] _ in
+            guard let urlStr = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  let url = URL(string: urlStr) else {
+                self?.showAlert(title: "Invalid URL", message: "Please enter a valid HTTP/HTTPS URL.")
+                return
+            }
+
+            let loading = UIAlertController(title: "Fetching...", message: "Downloading source definition...", preferredStyle: .alert)
+            self?.present(loading, animated: true)
+
+            URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
+                DispatchQueue.main.async {
+                    loading.dismiss(animated: true) {
+                        if let error = error {
+                            self?.showAlert(title: "Download Failed", message: error.localizedDescription)
+                            return
+                        }
+                        guard let data = data, let jsonStr = String(data: data, encoding: .utf8) else {
+                            self?.showAlert(title: "Download Failed", message: "Invalid or empty response from server.")
+                            return
+                        }
+
+                        do {
+                            let imported = try SourceManager.shared.importSource(from: jsonStr)
+                            self?.tableView.reloadData()
+                            self?.showAlert(title: "Import Successful", message: "Imported and activated '\(imported.name)'.")
+                        } catch {
+                            self?.showAlert(title: "Parse Error", message: error.localizedDescription)
+                        }
+                    }
+                }
+            }.resume()
+        })
+
+        present(alert, animated: true)
+    }
+
+    private func runSourceConnectionTest() {
+        guard let active = SourceManager.shared.activeSource else {
+            showAlert(title: "No Active Source", message: "Please select or add a source first.")
+            return
+        }
+
+        let progress = UIAlertController(
+            title: "Auditing Source Connection",
+            message: "Contacting '\(active.name)'...\nParsing catalog and testing hardware compatibility...",
+            preferredStyle: .alert
+        )
+        present(progress, animated: true)
+
+        SourceManager.shared.testSourceConnection(active) { [weak self] result in
+            progress.dismiss(animated: true) {
+                switch result {
+                case .success(let summary):
+                    let msg = """
+                    • Source: \(summary.sourceName)
+                    • HTTP Response: 200 OK
+                    • Network Latency: \(summary.latencyMs) ms
+                    • Catalog Items Found: \(summary.itemsFound)
+                    • Sample Anime: "\(summary.sampleTitle)"
+                    • Route: \(summary.isProxyUsed ? "Cloudflare Edge Proxy" : "Direct Connection")
+                    • iPad Air 1 VDA: Ready for Hardware H.264
+                    """
+                    self?.showAlert(title: "✅ Connection Test Passed", message: msg)
+
+                case .failure(let error):
+                    let msg = """
+                    Failed to extract anime catalog:
+                    \(error.localizedDescription)
+
+                    Diagnostics:
+                    • Check if the website URL is accessible.
+                    • If protected by Cloudflare bot wall, set "useProxy: true" in source config.
+                    """
+                    self?.showAlert(title: "❌ Connection Test Failed", message: msg)
+                }
+            }
+        }
+    }
+
+    private func promptSelectSource(from indexPath: IndexPath) {
         let alert = UIAlertController(title: "Select Active Source", message: nil, preferredStyle: .actionSheet)
+        let currentId = SourceManager.shared.activeSource?.id
+
         for s in SourceManager.shared.sources {
-            alert.addAction(UIAlertAction(title: s.name, style: .default) { [weak self] _ in
+            let title = (s.id == currentId) ? "✓ \(s.name)" : s.name
+            alert.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
                 SourceManager.shared.setActiveSource(id: s.id)
                 self?.tableView.reloadData()
             })
         }
+
+        if SourceManager.shared.sources.count > 1 {
+            alert.addAction(UIAlertAction(title: "🗑️ Delete a Source...", style: .destructive) { [weak self] _ in
+                self?.promptDeleteSource(from: indexPath)
+            })
+        }
+
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
         if let popover = alert.popoverPresentationController {
-            popover.sourceView = view
-            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
-            popover.permittedArrowDirections = []
+            popover.sourceView = tableView.cellForRow(at: indexPath) ?? view
+            popover.sourceRect = tableView.cellForRow(at: indexPath)?.bounds ?? CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
+            popover.permittedArrowDirections = [.up, .down]
         }
+        present(alert, animated: true)
+    }
+
+    private func promptDeleteSource(from indexPath: IndexPath) {
+        let alert = UIAlertController(
+            title: "Delete Source",
+            message: "Select a source to remove from Matnami:",
+            preferredStyle: .actionSheet
+        )
+
+        for s in SourceManager.shared.sources {
+            alert.addAction(UIAlertAction(title: "Delete \(s.name)", style: .destructive) { [weak self] _ in
+                let ok = SourceManager.shared.deleteSource(id: s.id)
+                self?.tableView.reloadData()
+                if ok {
+                    self?.showAlert(title: "Source Removed", message: "'\(s.name)' has been removed.")
+                } else {
+                    self?.showAlert(title: "Cannot Delete", message: "Matnami requires at least one configured source.")
+                }
+            })
+        }
+
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = tableView.cellForRow(at: indexPath) ?? view
+            popover.sourceRect = tableView.cellForRow(at: indexPath)?.bounds ?? CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
+            popover.permittedArrowDirections = [.up, .down]
+        }
+        present(alert, animated: true)
+    }
+
+    private func promptEditOTAUrl() {
+        let alert = UIAlertController(
+            title: "Custom OTA Feed URL",
+            message: "Provide a custom raw JSON URL to sync sources from your own repository or GitHub Gist.",
+            preferredStyle: .alert
+        )
+
+        alert.addTextField { field in
+            field.text = AppSettings.shared.customOTAUrl
+            field.keyboardType = .URL
+            field.autocapitalizationType = .none
+            field.clearButtonMode = .whileEditing
+        }
+
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+        alert.addAction(UIAlertAction(title: "Reset to Default", style: .destructive) { [weak self] _ in
+            AppSettings.shared.customOTAUrl = "https://raw.githubusercontent.com/LogicKatanaX/Matnami/main/Sources/sources.json"
+            self?.tableView.reloadData()
+            self?.showAlert(title: "OTA URL Reset", message: "Reset to default official repository feed.")
+        })
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak self] _ in
+            if let newUrl = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines), !newUrl.isEmpty {
+                AppSettings.shared.customOTAUrl = newUrl
+                self?.tableView.reloadData()
+                self?.showAlert(title: "OTA Feed Saved", message: "Remote sync feed updated.")
+            }
+        })
+
         present(alert, animated: true)
     }
 

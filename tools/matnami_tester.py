@@ -135,16 +135,105 @@ def cmd_batch_file(auditor: WebsiteAuditor, sm: SourceManager, file_path: str):
         content = f.read()
     cmd_batch(auditor, sm, content)
 
-def cmd_add(auditor: WebsiteAuditor, sm: SourceManager, url: str):
-    report = cmd_test(auditor, sm, url)
-    if not report.is_compatible or not report.suggested_config:
-        console.print("\n[bold red]Strict Rejection:[/] Website does not meet our reliability rubric for iOS 12. Not added.")
-        return
+import json
 
-    console.print(f"\n[bold cyan]Adding '{report.suggested_config['name']}' to Sources/sources.json...[/bold cyan]")
-    ok = sm.save_source(report.suggested_config)
+def cmd_export(auditor: WebsiteAuditor, sm: SourceManager, url: str, output_file: Optional[str] = None):
+    sources = sm.list_sources()
+    existing = next((s for s in sources if s.get("baseURL", "").rstrip("/") in url.rstrip("/")), None)
+
+    console.print(f"[bold cyan]Auditing & generating configuration for {url}...[/bold cyan]")
+    report = auditor.audit_url(url, existing_config=existing)
+    display_audit_report(report)
+
+    config = report.suggested_config
+    if not config:
+        import urllib.parse
+        parsed = urllib.parse.urlparse(url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        s_id = parsed.netloc.replace("www.", "").split(".")[0].lower()
+        config = {
+            "id": s_id,
+            "name": s_id.capitalize(),
+            "baseURL": base,
+            "catalogPattern": f"{base}/",
+            "searchPattern": f"{base}/?s={{query}}",
+            "cardSelector": "article, .animepost, .item, .bsx, .detpost, a[href]",
+            "linkSelector": "a[href]",
+            "titleSelector": "h2.entry-title a, h2, h3, .title, a",
+            "coverSelector": "img",
+            "scoreSelector": None,
+            "synopsisSelector": ".entry-content, .desc, p",
+            "episodeListSelector": "a[href*='Season-'], a[href*='Episode-'], a[href*='-Video/'], a[href*='/episode/']",
+            "episodeLinkSelector": "a",
+            "episodeTitleSelector": "a",
+            "playerIframeSelector": None,
+            "serverItemSelector": "a[href*='.mp4'], source[src*='.mp4']",
+            "ajaxAction": None,
+            "useProxy": report.use_proxy
+        }
+
+    formatted_json = json.dumps(config, indent=2, ensure_ascii=False)
+    console.print("\n[bold green]═══════════════════════════════════════════════════════════════[/bold green]")
+    console.print("[bold green]  READY-TO-IMPORT SOURCE CONFIGURATION (JSON)                 [/bold green]")
+    console.print("[bold green]═══════════════════════════════════════════════════════════════[/bold green]\n")
+    console.print(formatted_json)
+    console.print("\n[bold yellow]To use in Matnami iOS App:[/bold yellow]")
+    console.print("  1. Copy the JSON block above")
+    console.print("  2. In Matnami -> Settings -> 'Add Custom Website / Source (+)'")
+    console.print("  3. Tap 'Import from Clipboard / JSON' (or paste in the field)")
+    console.print("  4. Tap Import -> The source is instantly active with direct hardware downloads!\n")
+
+    if output_file:
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write(formatted_json)
+        console.print(f"[bold green]Saved configuration to {output_file}[/bold green]")
+
+    return config
+
+def cmd_add(auditor: WebsiteAuditor, sm: SourceManager, url: str, force: bool = False):
+    report = cmd_test(auditor, sm, url)
+
+    if not report.is_compatible and not force:
+        console.print(f"\n[bold yellow]Notice:[/] Website compatibility score is [bold]{report.overall_score}/100[/bold].")
+        try:
+            choice = console.input("[bold yellow]Do you want to force-add this source to Sources/sources.json anyway? [y/N]: [/bold yellow]").strip().lower()
+            if choice not in ("y", "yes"):
+                console.print("[red]Aborted. Not added.[/red]")
+                return
+        except Exception:
+            return
+
+    config = report.suggested_config
+    if not config:
+        import urllib.parse
+        parsed = urllib.parse.urlparse(url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        s_id = parsed.netloc.replace("www.", "").split(".")[0].lower()
+        config = {
+            "id": s_id,
+            "name": s_id.capitalize(),
+            "baseURL": base,
+            "catalogPattern": f"{base}/",
+            "searchPattern": f"{base}/?s={{query}}",
+            "cardSelector": "article, .animepost, .item, .bsx, .detpost, a[href]",
+            "linkSelector": "a[href]",
+            "titleSelector": "h2.entry-title a, h2, h3, .title, a",
+            "coverSelector": "img",
+            "scoreSelector": None,
+            "synopsisSelector": ".entry-content, .desc, p",
+            "episodeListSelector": "a[href*='Season-'], a[href*='Episode-'], a[href*='-Video/'], a[href*='/episode/']",
+            "episodeLinkSelector": "a",
+            "episodeTitleSelector": "a",
+            "playerIframeSelector": None,
+            "serverItemSelector": "a[href*='.mp4'], source[src*='.mp4']",
+            "ajaxAction": None,
+            "useProxy": report.use_proxy
+        }
+
+    console.print(f"\n[bold cyan]Adding '{config['name']}' to Sources/sources.json...[/bold cyan]")
+    ok = sm.save_source(config)
     if ok:
-        console.print(f"[bold green]SUCCESS:[/] Added {report.suggested_config['name']} to Sources/sources.json")
+        console.print(f"[bold green]SUCCESS:[/] Added {config['name']} to Sources/sources.json")
     else:
         console.print("[bold red]ERROR:[/] Failed to write to Sources/sources.json")
 
@@ -206,9 +295,10 @@ def interactive_menu():
         console.print("  [6] Add New Anime Website (Audit + Auto-Save to sources.json)")
         console.print("  [7] Remove an Anime Source")
         console.print("  [8] Over-The-Air (OTA) Manager (Deploy sources to iPad)")
+        console.print("  [9] Export Source JSON for Any Website (Copy & Paste into Matnami app)")
         console.print("  [0] Exit")
 
-        choice = console.input("\n[bold yellow]Select an option [0-8]: [/bold yellow]").strip()
+        choice = console.input("\n[bold yellow]Select an option [0-9]: [/bold yellow]").strip()
 
         if choice == "1":
             cmd_list(sm)
@@ -247,6 +337,10 @@ def interactive_menu():
                 cmd_remove(sm, s_id)
         elif choice == "8":
             cmd_ota(sm)
+        elif choice == "9":
+            url = console.input("[bold white]Enter Website URL to Export JSON for Matnami: [/bold white]").strip()
+            if url:
+                cmd_export(auditor, sm, url)
         elif choice == "0":
             console.print("[bold green]Goodbye![/bold green]")
             break
@@ -271,6 +365,11 @@ def main():
 
     add_parser = subparsers.add_parser("add", help="Audit and add a website to sources.json")
     add_parser.add_argument("url", help="Target website URL")
+    add_parser.add_argument("--force", "-f", action="store_true", help="Force-add source to sources.json even if compatibility score is low")
+
+    export_parser = subparsers.add_parser("export", help="Audit and export source JSON configuration for Matnami")
+    export_parser.add_argument("url", help="Target website URL")
+    export_parser.add_argument("--output", "-o", help="Optional output file path (e.g. custom_source.json)")
 
     remove_parser = subparsers.add_parser("remove", help="Remove a source from sources.json")
     remove_parser.add_argument("id", help="Source ID to remove")
@@ -293,7 +392,9 @@ def main():
     elif args.command == "batch-file":
         cmd_batch_file(auditor, sm, args.file)
     elif args.command == "add":
-        cmd_add(auditor, sm, args.url)
+        cmd_add(auditor, sm, args.url, force=getattr(args, "force", False))
+    elif args.command == "export":
+        cmd_export(auditor, sm, args.url, output_file=getattr(args, "output", None))
     elif args.command == "remove":
         cmd_remove(sm, args.id)
     elif args.command == "ota":
@@ -303,3 +404,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

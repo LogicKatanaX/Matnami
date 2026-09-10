@@ -63,6 +63,88 @@ public final class SourceManager {
         }
     }
 
+    /// Adds or updates a custom anime source and persists to disk
+    public func addSource(_ config: AnimeSourceConfig, makeActive: Bool = true) {
+        if let idx = sources.firstIndex(where: { $0.id == config.id }) {
+            sources[idx] = config
+        } else {
+            sources.append(config)
+        }
+        saveSourcesToDisk()
+        if makeActive {
+            setActiveSource(id: config.id)
+        } else {
+            NotificationCenter.default.post(name: .sourcesDidUpdate, object: sources)
+        }
+    }
+
+    /// Removes a custom source if more than one source exists
+    public func deleteSource(id: String) -> Bool {
+        guard sources.count > 1 else { return false }
+        guard let idx = sources.firstIndex(where: { $0.id == id }) else { return false }
+        sources.remove(at: idx)
+        saveSourcesToDisk()
+        if activeSource?.id == id {
+            if let first = sources.first {
+                setActiveSource(id: first.id)
+            }
+        } else {
+            NotificationCenter.default.post(name: .sourcesDidUpdate, object: sources)
+        }
+        return true
+    }
+
+    /// Imports a source or list of sources from a JSON string
+    public func importSource(from jsonString: String) throws -> AnimeSourceConfig {
+        guard let data = jsonString.data(using: .utf8) else {
+            throw NSError(domain: "SourceManager", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid text encoding"])
+        }
+        let decoder = JSONDecoder()
+        if let single = try? decoder.decode(AnimeSourceConfig.self, from: data) {
+            addSource(single, makeActive: true)
+            return single
+        } else if let list = try? decoder.decode([AnimeSourceConfig].self, from: data), let first = list.first {
+            for s in list {
+                addSource(s, makeActive: false)
+            }
+            setActiveSource(id: first.id)
+            return first
+        } else {
+            throw NSError(domain: "SourceManager", code: 422, userInfo: [NSLocalizedDescriptionKey: "JSON does not match AnimeSourceConfig schema"])
+        }
+    }
+
+    /// Saves the current list of sources to UserDefaults
+    private func saveSourcesToDisk() {
+        if let data = try? JSONEncoder().encode(sources) {
+            UserDefaults.standard.set(data, forKey: userDefaultsKey)
+        }
+    }
+
+    /// Live test of source catalog extraction and connectivity
+    public func testSourceConnection(_ config: AnimeSourceConfig, completion: @escaping (Result<SourceTestSummary, Error>) -> Void) {
+        let startTime = CFAbsoluteTimeGetCurrent()
+        AnimeScraperEngine.shared.fetchCatalog(source: config, page: 1) { result in
+            let latencyMs = Int((CFAbsoluteTimeGetCurrent() - startTime) * 1000)
+            switch result {
+            case .success(let animes):
+                let sampleTitle = animes.first?.title ?? "No anime cards found"
+                let firstURL = animes.first?.detailURL.absoluteString ?? "N/A"
+                let summary = SourceTestSummary(
+                    sourceName: config.name,
+                    latencyMs: latencyMs,
+                    itemsFound: animes.count,
+                    sampleTitle: sampleTitle,
+                    firstAnimeURL: firstURL,
+                    isProxyUsed: config.useProxy
+                )
+                DispatchQueue.main.async { completion(.success(summary)) }
+            case .failure(let error):
+                DispatchQueue.main.async { completion(.failure(error)) }
+            }
+        }
+    }
+
     /// Resets sources to bundled defaults and clears cached OTA configurations
     public func resetToDefaultSources() {
         UserDefaults.standard.removeObject(forKey: userDefaultsKey)
@@ -125,6 +207,15 @@ public final class SourceManager {
             }
         }.resume()
     }
+}
+
+public struct SourceTestSummary {
+    public let sourceName: String
+    public let latencyMs: Int
+    public let itemsFound: Int
+    public let sampleTitle: String
+    public let firstAnimeURL: String
+    public let isProxyUsed: Bool
 }
 
 public extension Notification.Name {
