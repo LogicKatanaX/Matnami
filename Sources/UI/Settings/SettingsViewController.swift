@@ -19,15 +19,16 @@ public final class SettingsViewController: UITableViewController {
 
     // MARK: - Table view data source
     public override func numberOfSections(in tableView: UITableView) -> Int {
-        return 4
+        return 5
     }
 
     public override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch section {
         case 0: return qualityOptions.count // Preferred Video Quality
-        case 1: return 3                    // Storage & Deletion Management (Delete All, Clear Cache, Reset App)
+        case 1: return 3                    // Storage & Deletion Management
         case 2: return 5                    // Anime Sources & Custom Websites
-        case 3: return 3                    // Device & Architecture Info
+        case 3: return 4                    // Cloudflare Edge Proxy (ISP Bypass)
+        case 4: return 2                    // Device & Architecture Info
         default: return 0
         }
     }
@@ -37,7 +38,8 @@ public final class SettingsViewController: UITableViewController {
         case 0: return "Preferred Video Quality"
         case 1: return "Storage & Deletion Management"
         case 2: return "Anime Sources & Custom Websites"
-        case 3: return "Device & Architecture"
+        case 3: return "Cloudflare Edge Proxy (ISP Bypass)"
+        case 4: return "Device & Architecture"
         default: return nil
         }
     }
@@ -112,15 +114,34 @@ public final class SettingsViewController: UITableViewController {
 
         case 3:
             if indexPath.row == 0 {
+                cell.textLabel?.text = "Custom Worker Proxy URL"
+                let current = AppSettings.shared.proxyBaseUrl
+                cell.detailTextLabel?.text = current.contains("santamcyber") ? "Default" : (current.contains("workers.dev") ? "Custom Worker" : "Configured")
+                cell.accessoryType = .disclosureIndicator
+            } else if indexPath.row == 1 {
+                cell.textLabel?.text = "Proxy Video Streams & Downloads"
+                let on = AppSettings.shared.useProxyForStreams
+                cell.detailTextLabel?.text = on ? "Enabled" : "Disabled"
+                cell.detailTextLabel?.textColor = on ? AppTheme.success : AppTheme.textSecondary
+                cell.accessoryType = .disclosureIndicator
+            } else if indexPath.row == 2 {
+                cell.textLabel?.text = "⚡ Test Worker Reachability"
+                cell.detailTextLabel?.text = "Ping Proxy"
+                cell.textLabel?.textColor = AppTheme.success
+                cell.accessoryType = .disclosureIndicator
+            } else {
+                cell.textLabel?.text = "Reset Proxy to Default"
+                cell.detailTextLabel?.text = "Restore"
+                cell.accessoryType = .none
+            }
+
+        case 4:
+            if indexPath.row == 0 {
                 cell.textLabel?.text = "Hardware Target"
                 cell.detailTextLabel?.text = "iPad Air 1 (Apple A7 • 1GB RAM)"
-            } else if indexPath.row == 1 {
-                cell.textLabel?.text = "Playback Mode"
-                cell.detailTextLabel?.text = "Pure Offline (Zero-Buffer H.264)"
             } else {
-                cell.textLabel?.text = "Edge Proxy"
-                cell.detailTextLabel?.text = "Cloudflare Worker (Always-On)"
-                cell.detailTextLabel?.textColor = AppTheme.success
+                cell.textLabel?.text = "Playback Mode"
+                cell.detailTextLabel?.text = "Hardware AVC/H.264 (Stream & Offline)"
             }
 
         default: break
@@ -158,6 +179,21 @@ public final class SettingsViewController: UITableViewController {
                 triggerOTASync()
             } else {
                 promptEditOTAUrl()
+            }
+
+        case 3:
+            if indexPath.row == 0 {
+                promptEditProxyUrl()
+            } else if indexPath.row == 1 {
+                AppSettings.shared.useProxyForStreams.toggle()
+                tableView.reloadRows(at: [indexPath], with: .none)
+            } else if indexPath.row == 2 {
+                testProxyReachability()
+            } else {
+                AppSettings.shared.proxyBaseUrl = AppSettings.defaultProxyBase
+                AppSettings.shared.useProxyForStreams = false
+                tableView.reloadSections(IndexSet(integer: 3), with: .none)
+                showAlert(title: "Proxy Reset", message: "Worker proxy restored to default endpoint.")
             }
 
         default: break
@@ -577,6 +613,68 @@ public final class SettingsViewController: UITableViewController {
         })
 
         present(alert, animated: true)
+    }
+
+    private func promptEditProxyUrl() {
+        let alert = UIAlertController(
+            title: "Cloudflare Worker Proxy",
+            message: "Enter your Cloudflare Worker URL to bypass ISP blocks on HentaiFreak & restricted media hosts:\n\nFormat: https://<worker>.workers.dev/?url=",
+            preferredStyle: .alert
+        )
+
+        alert.addTextField { field in
+            field.text = AppSettings.shared.proxyBaseUrl
+            field.placeholder = "https://<worker>.workers.dev/?url="
+            field.keyboardType = .URL
+            field.autocapitalizationType = .none
+            field.clearButtonMode = .whileEditing
+        }
+
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak self] _ in
+            if var text = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+                if !text.contains("?url=") && text.contains("workers.dev") {
+                    if !text.hasSuffix("/") { text += "/" }
+                    text += "?url="
+                }
+                AppSettings.shared.proxyBaseUrl = text
+                AppSettings.shared.useProxyForStreams = true
+                self?.tableView.reloadData()
+                self?.showAlert(title: "Proxy Configured", message: "Edge worker set to:\n\(text)\n\nStreaming & Download proxy has been enabled.")
+            }
+        })
+
+        present(alert, animated: true)
+    }
+
+    private func testProxyReachability() {
+        let proxyBase = AppSettings.shared.proxyBaseUrl
+        guard let testURL = URL(string: proxyBase + "https://httpbin.org/get") ?? URL(string: proxyBase) else {
+            showAlert(title: "Invalid URL", message: "Configured worker URL is invalid.")
+            return
+        }
+
+        let alert = UIAlertController(title: "Testing Worker Proxy", message: "Pinging Cloudflare edge...", preferredStyle: .alert)
+        present(alert, animated: true)
+
+        let start = CACurrentMediaTime()
+        var req = URLRequest(url: testURL)
+        req.timeoutInterval = 10.0
+        URLSession.shared.dataTask(with: req) { [weak self] data, response, error in
+            let elapsed = Int((CACurrentMediaTime() - start) * 1000)
+            DispatchQueue.main.async {
+                alert.dismiss(animated: true) {
+                    if let error = error {
+                        self?.showAlert(title: "Worker Unreachable", message: "Error:\n\(error.localizedDescription)\n\nPlease check your worker URL or internet connection.")
+                    } else if let http = response as? HTTPURLResponse, (200...399).contains(http.statusCode) {
+                        self?.showAlert(title: "Worker Online! ⚡", message: "Status: \(http.statusCode) OK\nLatency: \(elapsed) ms\nCloudflare edge proxy is active and ready to stream.")
+                    } else {
+                        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                        self?.showAlert(title: "Worker Response HTTP \(code)", message: "Worker reached but returned status \(code).")
+                    }
+                }
+            }
+        }.resume()
     }
 
     private func showAlert(title: String, message: String) {

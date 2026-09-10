@@ -79,15 +79,18 @@ public struct DownloadItem: Codable, Equatable {
     }
 
     public var formattedSize: String {
-        if totalBytes > 0 {
+        if totalBytes > 0 && bytesDownloaded > 0 {
             let downloadedMB = Double(bytesDownloaded) / (1024 * 1024)
             let totalMB = Double(totalBytes) / (1024 * 1024)
             return String(format: "%.1f / %.1f MB", downloadedMB, totalMB)
+        } else if totalBytes > 0 {
+            let totalMB = Double(totalBytes) / (1024 * 1024)
+            return String(format: "0 / %.1f MB", totalMB)
         } else if bytesDownloaded > 0 {
             let downloadedMB = Double(bytesDownloaded) / (1024 * 1024)
             return String(format: "%.1f MB", downloadedMB)
         } else {
-            return "0 MB"
+            return "Starting..."
         }
     }
 }

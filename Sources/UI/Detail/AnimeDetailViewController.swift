@@ -242,13 +242,13 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
         if let it = item {
             switch it.state {
             case .completed:
-                playOfflineEpisode(episode)
+                presentDownloadedEpisodeOptions(episode)
                 return
             case .downloading:
-                DownloadManager.shared.pauseDownload(id: episode.id)
+                presentActiveDownloadingOptions(episode, item: it)
                 return
             case .paused, .failed:
-                DownloadManager.shared.resumeDownload(id: episode.id)
+                presentPausedEpisodeOptions(episode, item: it)
                 return
             case .queued:
                 DownloadManager.shared.cancelDownload(id: episode.id)
@@ -256,8 +256,91 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
             }
         }
 
-        // Not yet downloaded: resolve download sources and qualities
-        resolveDownloadSources(for: episode)
+        // Not yet downloaded: resolve sources and present Play / Download choices
+        resolveSources(for: episode) { [weak self] sources in
+            self?.presentPlayOrDownloadPicker(sources: sources, episode: episode)
+        }
+    }
+
+    private func presentDownloadedEpisodeOptions(_ episode: Episode) {
+        let sheet = UIAlertController(
+            title: episode.title,
+            message: "Offline download is ready on this iPad.",
+            preferredStyle: .actionSheet
+        )
+        sheet.addAction(UIAlertAction(title: "▶ Play Offline", style: .default) { [weak self] _ in
+            self?.playOfflineEpisode(episode)
+        })
+        sheet.addAction(UIAlertAction(title: "▶ Stream Online", style: .default) { [weak self] _ in
+            self?.resolveSources(for: episode) { sources in
+                self?.presentStreamingQualityPicker(sources: sources, episode: episode)
+            }
+        })
+        sheet.addAction(UIAlertAction(title: "🗑️ Delete Download", style: .destructive) { [weak self] _ in
+            self?.confirmDeleteSingleEpisode(episode)
+        })
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = self.view
+            popover.sourceRect = CGRect(x: self.view.bounds.midX, y: self.view.bounds.midY, width: 1, height: 1)
+            popover.permittedArrowDirections = []
+        }
+        present(sheet, animated: true)
+    }
+
+    private func presentActiveDownloadingOptions(_ episode: Episode, item: DownloadItem) {
+        let sheet = UIAlertController(
+            title: episode.title,
+            message: "Currently downloading (\(item.formattedSize)). You can stream immediately while downloading.",
+            preferredStyle: .actionSheet
+        )
+        sheet.addAction(UIAlertAction(title: "▶ Play Online (Instant Stream)", style: .default) { [weak self] _ in
+            self?.resolveSources(for: episode) { sources in
+                self?.presentStreamingQualityPicker(sources: sources, episode: episode)
+            }
+        })
+        sheet.addAction(UIAlertAction(title: "⏸ Pause Download", style: .default) { _ in
+            DownloadManager.shared.pauseDownload(id: episode.id)
+        })
+        sheet.addAction(UIAlertAction(title: "🛑 Cancel Download", style: .destructive) { _ in
+            DownloadManager.shared.cancelDownload(id: episode.id)
+        })
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = self.view
+            popover.sourceRect = CGRect(x: self.view.bounds.midX, y: self.view.bounds.midY, width: 1, height: 1)
+            popover.permittedArrowDirections = []
+        }
+        present(sheet, animated: true)
+    }
+
+    private func presentPausedEpisodeOptions(_ episode: Episode, item: DownloadItem) {
+        let sheet = UIAlertController(
+            title: episode.title,
+            message: "Download paused or failed (\(item.formattedSize)).",
+            preferredStyle: .actionSheet
+        )
+        sheet.addAction(UIAlertAction(title: "▶ Play Online (Instant Stream)", style: .default) { [weak self] _ in
+            self?.resolveSources(for: episode) { sources in
+                self?.presentStreamingQualityPicker(sources: sources, episode: episode)
+            }
+        })
+        sheet.addAction(UIAlertAction(title: "↻ Resume Download", style: .default) { _ in
+            DownloadManager.shared.resumeDownload(id: episode.id)
+        })
+        sheet.addAction(UIAlertAction(title: "🗑️ Delete Download", style: .destructive) { [weak self] _ in
+            self?.confirmDeleteSingleEpisode(episode)
+        })
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = self.view
+            popover.sourceRect = CGRect(x: self.view.bounds.midX, y: self.view.bounds.midY, width: 1, height: 1)
+            popover.permittedArrowDirections = []
+        }
+        present(sheet, animated: true)
     }
 
     private func playOfflineEpisode(_ episode: Episode) {
@@ -275,7 +358,23 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
         present(playerVC, animated: true)
     }
 
-    private func resolveDownloadSources(for episode: Episode) {
+    private func playOnlineEpisode(_ episode: Episode, source: VideoSource) {
+        var mediaURL = source.streamURL
+        if AppSettings.shared.useProxyForStreams && AppSettings.shared.isCustomProxyConfigured {
+            mediaURL = AnimeScraperEngine.proxiedURL(for: mediaURL)
+        }
+
+        let playerVC = VideoPlayerViewController(
+            animeTitle: anime.title,
+            episodeTitle: episode.title,
+            mediaURL: mediaURL,
+            httpHeaders: source.effectiveHeaders,
+            isOffline: false
+        )
+        present(playerVC, animated: true)
+    }
+
+    private func resolveSources(for episode: Episode, completion: @escaping ([VideoSource]) -> Void) {
         guard let source = SourceManager.shared.activeSource else { return }
         activityIndicator.startAnimating()
 
@@ -286,26 +385,95 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
             switch result {
             case .success(let sources):
                 guard !sources.isEmpty else {
-                    self.showError(message: "No download sources available for this episode.")
+                    self.showError(message: "No video sources available for this episode.")
                     return
                 }
-                self.presentDownloadPicker(sources: sources, episode: episode)
+                completion(sources)
 
             case .failure(let error):
-                self.showError(message: "Failed to resolve download servers:\n\(error.localizedDescription)")
+                self.showError(message: "Failed to resolve video sources:\n\(error.localizedDescription)")
             }
         }
     }
 
-    private func presentDownloadPicker(sources: [VideoSource], episode: Episode) {
+    private func presentPlayOrDownloadPicker(sources: [VideoSource], episode: Episode) {
         let sheet = UIAlertController(
-            title: "Download Quality",
-            message: "\(episode.title)\nSelect resolution to download offline:",
+            title: episode.title,
+            message: "Choose playback method for this episode:",
+            preferredStyle: .actionSheet
+        )
+
+        sheet.addAction(UIAlertAction(title: "▶ Play Online (Instant Stream)", style: .default) { [weak self] _ in
+            self?.presentStreamingQualityPicker(sources: sources, episode: episode)
+        })
+
+        sheet.addAction(UIAlertAction(title: "⬇ Download to iPad (Offline)", style: .default) { [weak self] _ in
+            self?.presentDownloadQualityPicker(sources: sources, episode: episode)
+        })
+
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = self.view
+            popover.sourceRect = CGRect(x: self.view.bounds.midX, y: self.view.bounds.midY, width: 1, height: 1)
+            popover.permittedArrowDirections = []
+        }
+        present(sheet, animated: true)
+    }
+
+    private func presentStreamingQualityPicker(sources: [VideoSource], episode: Episode) {
+        if sources.count == 1, let first = sources.first {
+            playOnlineEpisode(episode, source: first)
+            return
+        }
+
+        let sheet = UIAlertController(
+            title: "Select Stream Quality",
+            message: "\(episode.title)\nPick video server/resolution:",
             preferredStyle: .actionSheet
         )
 
         let preferred = AppSettings.shared.preferredQuality
-        // Sort matching preferred quality to the top
+        let sortedSources = sources.sorted { a, b in
+            if a.quality == preferred && b.quality != preferred { return true }
+            if b.quality == preferred && a.quality != preferred { return false }
+            return a.quality.rawValue > b.quality.rawValue
+        }
+
+        for s in sortedSources {
+            let prefTag = (s.quality == preferred) ? " ★ Preferred" : ""
+            let label = "▶ \(s.serverName) [\(s.quality.displayName)]\(prefTag)"
+
+            sheet.addAction(UIAlertAction(title: label, style: .default) { [weak self] _ in
+                self?.playOnlineEpisode(episode, source: s)
+            })
+        }
+
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = self.view
+            popover.sourceRect = CGRect(x: self.view.bounds.midX, y: self.view.bounds.midY, width: 1, height: 1)
+            popover.permittedArrowDirections = []
+        }
+        present(sheet, animated: true)
+    }
+
+    private func presentDownloadQualityPicker(sources: [VideoSource], episode: Episode) {
+        if sources.count == 1, let first = sources.first {
+            DownloadManager.shared.startDownload(anime: anime, episode: episode, videoSource: first)
+            updateNavBarButtons()
+            tableView.reloadData()
+            return
+        }
+
+        let sheet = UIAlertController(
+            title: "Select Download Quality",
+            message: "\(episode.title)\nPick resolution to save offline:",
+            preferredStyle: .actionSheet
+        )
+
+        let preferred = AppSettings.shared.preferredQuality
         let sortedSources = sources.sorted { a, b in
             if a.quality == preferred && b.quality != preferred { return true }
             if b.quality == preferred && a.quality != preferred { return false }
@@ -315,7 +483,7 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
         for s in sortedSources {
             let prefTag = (s.quality == preferred) ? " ★ Preferred" : ""
             let directTag = s.isDirectDownload ? " ⚡Direct" : ""
-            let label = "\(s.serverName) [\(s.quality.displayName)]\(prefTag)\(directTag)"
+            let label = "⬇ \(s.serverName) [\(s.quality.displayName)]\(prefTag)\(directTag)"
 
             sheet.addAction(UIAlertAction(title: label, style: .default) { [weak self] _ in
                 guard let self = self else { return }
@@ -332,7 +500,6 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
             popover.sourceRect = CGRect(x: self.view.bounds.midX, y: self.view.bounds.midY, width: 1, height: 1)
             popover.permittedArrowDirections = []
         }
-
         present(sheet, animated: true)
     }
 

@@ -29,6 +29,50 @@ public final class DirectMP4Resolver {
         return false
     }
 
+    /// Normalizes and cleans media URLs, stripping duplicate slashes and properly escaping spaces
+    public func sanitizeMediaURL(rawURLString: String, baseURL: URL) -> URL? {
+        var str = rawURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+        if str.isEmpty { return nil }
+
+        if str.hasPrefix("//") {
+            str = "https:" + str
+        }
+
+        var scheme = ""
+        var rest = str
+        if let schemeRange = str.range(of: "://") {
+            scheme = String(str[..<schemeRange.upperBound])
+            rest = String(str[schemeRange.upperBound...])
+        }
+
+        // Collapse duplicate slashes in the path (e.g. "Episode 1//01 First Touch.mp4" -> "Episode 1/01 First Touch.mp4")
+        while rest.contains("//") {
+            rest = rest.replacingOccurrences(of: "//", with: "/")
+        }
+
+        let combined = scheme.isEmpty ? rest : (scheme + rest)
+
+        // If it's an absolute URL
+        if combined.hasPrefix("http://") || combined.hasPrefix("https://") {
+            let encoded = combined.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? combined
+            return URL(string: encoded)
+        }
+
+        // Relative path: resolve against base origin
+        let pathPart = combined.hasPrefix("/") ? combined : ("/" + combined)
+        let baseOrigin: String
+        if let h = baseURL.host {
+            let s = baseURL.scheme ?? "https"
+            baseOrigin = "\(s)://\(h)"
+        } else {
+            baseOrigin = "https://www.cartoonsarea.cc"
+        }
+
+        let full = baseOrigin + pathPart
+        let encoded = full.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? full
+        return URL(string: encoded)
+    }
+
     /// Extracts direct video source from HTML page containing video/source tags or direct CDN links
     public func resolveFromHTML(_ html: String, pageURL: URL) -> [VideoSource] {
         var sources: [VideoSource] = []
@@ -38,6 +82,8 @@ public final class DirectMP4Resolver {
         }
         try? doc.select("noscript").remove()
 
+        let safeReferer = pageURL.absoluteString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? pageURL.absoluteString
+
         // 1. Direct <source> or <video> tags
         if let videoElements = try? doc.select("video, source") {
             for el in videoElements.array() {
@@ -45,11 +91,10 @@ public final class DirectMP4Resolver {
                 if src.isEmpty {
                     src = (try? el.attr("data-src")) ?? ""
                 }
-                var safeSrc = src.trimmingCharacters(in: .whitespacesAndNewlines)
+                let safeSrc = src.trimmingCharacters(in: .whitespacesAndNewlines)
                 if safeSrc.isEmpty { continue }
-                if safeSrc.hasPrefix("//") { safeSrc = "https:" + safeSrc }
-                let encodedSrc = safeSrc.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? safeSrc
-                guard let streamURL = URL(string: encodedSrc, relativeTo: pageURL)?.absoluteURL else {
+
+                guard let streamURL = sanitizeMediaURL(rawURLString: safeSrc, baseURL: pageURL) else {
                     continue
                 }
 
@@ -62,11 +107,11 @@ public final class DirectMP4Resolver {
                     serverName: "Direct (\(label))",
                     quality: quality,
                     streamURL: streamURL,
-                    referer: pageURL.absoluteString,
+                    referer: safeReferer,
                     isDirectDownload: format == .mp4,
                     format: format,
                     headers: [
-                        "Referer": pageURL.absoluteString,
+                        "Referer": safeReferer,
                         "User-Agent": desktopUA
                     ]
                 ))
@@ -78,11 +123,10 @@ public final class DirectMP4Resolver {
             for link in linkElements.array() {
                 let href = (try? link.attr("href")) ?? ""
                 let text = (try? link.text()) ?? ""
-                var safeHref = href.trimmingCharacters(in: .whitespacesAndNewlines)
+                let safeHref = href.trimmingCharacters(in: .whitespacesAndNewlines)
                 if safeHref.isEmpty { continue }
-                if safeHref.hasPrefix("//") { safeHref = "https:" + safeHref }
-                let encodedHref = safeHref.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? safeHref
-                guard let targetURL = URL(string: encodedHref, relativeTo: pageURL)?.absoluteURL else { continue }
+
+                guard let targetURL = sanitizeMediaURL(rawURLString: safeHref, baseURL: pageURL) else { continue }
                 let host = targetURL.host?.lowercased() ?? ""
 
                 var streamURL = targetURL
@@ -109,15 +153,20 @@ public final class DirectMP4Resolver {
                 let quality = parseQuality(from: parentText + " " + text + " " + safeHref)
                 let name = host.replacingOccurrences(of: "www.", with: "").capitalized
 
+                // Avoid duplicate URLs already present in sources
+                if sources.contains(where: { $0.streamURL == streamURL }) {
+                    continue
+                }
+
                 sources.append(VideoSource(
                     serverName: name.isEmpty ? "Direct MP4" : name,
                     quality: quality,
                     streamURL: streamURL,
-                    referer: pageURL.absoluteString,
+                    referer: safeReferer,
                     isDirectDownload: isDirect,
                     format: .mp4,
                     headers: [
-                        "Referer": pageURL.absoluteString,
+                        "Referer": safeReferer,
                         "User-Agent": desktopUA
                     ]
                 ))

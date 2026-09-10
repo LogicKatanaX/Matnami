@@ -87,8 +87,12 @@ public final class EpisodeCell: UITableViewCell {
                 actionButton.backgroundColor = AppTheme.success
 
             case .downloading:
-                let pct = Int(item.progress * 100)
-                statusLabel.text = "Downloading \(pct)% • \(item.formattedSize)"
+                if item.totalBytes > 0 {
+                    let pct = Int(item.progress * 100)
+                    statusLabel.text = "Downloading \(pct)% • \(item.formattedSize)"
+                } else {
+                    statusLabel.text = "Downloading • \(item.formattedSize)"
+                }
                 statusLabel.textColor = AppTheme.secondaryAccent
                 actionButton.setTitle("⏸ Pause", for: .normal)
                 actionButton.backgroundColor = AppTheme.cardBackground
@@ -112,9 +116,9 @@ public final class EpisodeCell: UITableViewCell {
                 actionButton.backgroundColor = AppTheme.primaryAccent
             }
         } else {
-            statusLabel.text = "Not Downloaded"
+            statusLabel.text = "Online Stream / Offline Download"
             statusLabel.textColor = AppTheme.textSecondary
-            actionButton.setTitle("⬇ Download", for: .normal)
+            actionButton.setTitle("▶ Play", for: .normal)
             actionButton.backgroundColor = AppTheme.primaryAccent
             deleteButton.isHidden = true
         }

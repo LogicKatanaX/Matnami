@@ -9,8 +9,9 @@ public final class AppSettings {
     private let keyProxy = "com.matnami.pref_use_proxy"
     private let keyOTAUrl = "com.matnami.pref_ota_url"
     private let keyProxyUrl = "com.matnami.pref_proxy_url"
+    private let keyProxyStreams = "com.matnami.pref_proxy_streams"
 
-    /// Default Cloudflare Worker Reverse Proxy Base Endpoint (Always-on architecture)
+    /// Default Cloudflare Worker template endpoint (user customizable)
     public static let defaultProxyBase = "https://manga-proxy.santamcyber.workers.dev/?url="
 
     private init() {}
@@ -29,16 +30,23 @@ public final class AppSettings {
         }
     }
 
-    /// Global Cloudflare Worker reverse proxy toggle (Default: true)
+    /// Global Cloudflare Worker reverse proxy toggle (Default: false to prioritize fast direct connection)
     public var useProxyByDefault: Bool {
         get {
-            if defaults.object(forKey: keyProxy) == nil {
-                return true
-            }
             return defaults.bool(forKey: keyProxy)
         }
         set {
             defaults.set(newValue, forKey: keyProxy)
+        }
+    }
+
+    /// Whether to route video streams and downloads through the edge proxy (Useful for ISP blocked hosts)
+    public var useProxyForStreams: Bool {
+        get {
+            return defaults.bool(forKey: keyProxyStreams)
+        }
+        set {
+            defaults.set(newValue, forKey: keyProxyStreams)
         }
     }
 
@@ -52,20 +60,28 @@ public final class AppSettings {
         }
     }
 
-    /// Cloudflare Worker Reverse Proxy Base Endpoint
+    /// Cloudflare Worker Reverse Proxy Base Endpoint (format: https://<worker>.workers.dev/?url=)
     public var proxyBaseUrl: String {
         get {
-            return defaults.string(forKey: keyProxyUrl) ?? AppSettings.defaultProxyBase
+            let saved = defaults.string(forKey: keyProxyUrl) ?? ""
+            return saved.isEmpty ? AppSettings.defaultProxyBase : saved
         }
         set {
-            defaults.set(newValue, forKey: keyProxyUrl)
+            defaults.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines), forKey: keyProxyUrl)
         }
+    }
+
+    /// True if user has configured an active proxy endpoint
+    public var isCustomProxyConfigured: Bool {
+        let current = defaults.string(forKey: keyProxyUrl) ?? ""
+        return !current.isEmpty && current.contains("http")
     }
 
     /// Resets all user settings back to initial factory defaults
     public func resetToDefaults() {
         defaults.removeObject(forKey: keyQuality)
         defaults.removeObject(forKey: keyProxy)
+        defaults.removeObject(forKey: keyProxyStreams)
         defaults.removeObject(forKey: keyOTAUrl)
         defaults.removeObject(forKey: keyProxyUrl)
     }

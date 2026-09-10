@@ -134,7 +134,12 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate {
         }
         saveMetadata()
 
-        var request = URLRequest(url: videoSource.streamURL)
+        var targetURL = videoSource.streamURL
+        if AppSettings.shared.useProxyForStreams && AppSettings.shared.isCustomProxyConfigured {
+            targetURL = AnimeScraperEngine.proxiedURL(for: targetURL)
+        }
+
+        var request = URLRequest(url: targetURL)
         for (k, v) in videoSource.effectiveHeaders {
             request.setValue(v, forHTTPHeaderField: k)
         }
@@ -173,7 +178,11 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate {
             task = downloadSession.downloadTask(withResumeData: resumeData)
             resumeDataMap.removeValue(forKey: id)
         } else if let url = URL(string: item.streamURL) {
-            var req = URLRequest(url: url)
+            var targetURL = url
+            if AppSettings.shared.useProxyForStreams && AppSettings.shared.isCustomProxyConfigured {
+                targetURL = AnimeScraperEngine.proxiedURL(for: targetURL)
+            }
+            var req = URLRequest(url: targetURL)
             req.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
             req.setValue("*/*", forHTTPHeaderField: "Accept")
             req.timeoutInterval = 60.0
@@ -220,8 +229,8 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate {
 
     /// Deletes all downloaded episodes for a specific anime series
     public func deleteDownloads(forAnimeId animeId: String) {
-        let matching = items.filter { $0.animeId == animeId }
-        for it in matching {
+        let targets = items.filter { $0.animeId == animeId }
+        for it in targets {
             if let task = activeTasks[it.id] {
                 task.cancel()
                 activeTasks.removeValue(forKey: it.id)
@@ -229,8 +238,11 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate {
             resumeDataMap.removeValue(forKey: it.id)
             _ = StorageManager.shared.deleteFile(fileName: it.localFileName)
         }
-        items.removeAll(where: { $0.animeId == animeId })
+        items.removeAll { $0.animeId == animeId }
         saveMetadata()
+        if activeTasks.isEmpty {
+            endBackgroundTask()
+        }
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .downloadStateChanged, object: nil)
         }
@@ -246,6 +258,7 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate {
         _ = StorageManager.shared.deleteAllDownloads()
         items.removeAll()
         saveMetadata()
+        endBackgroundTask()
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .downloadStateChanged, object: nil)
         }
@@ -267,17 +280,18 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate {
     }
 
     private func updateItemState(id: String, state: DownloadState, errorMessage: String? = nil) {
-        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
-        items[idx].state = state
-        if state == .completed {
-            items[idx].completedAt = Date()
-            items[idx].progress = 1.0
-        }
-        if let msg = errorMessage {
-            items[idx].errorMessage = msg
-        }
-        saveMetadata()
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self,
+                  let idx = self.items.firstIndex(where: { $0.id == id }) else { return }
+            self.items[idx].state = state
+            if state == .completed {
+                self.items[idx].completedAt = Date()
+                self.items[idx].progress = 1.0
+            }
+            if let msg = errorMessage {
+                self.items[idx].errorMessage = msg
+            }
+            self.saveMetadata()
             NotificationCenter.default.post(name: .downloadStateChanged, object: id)
         }
     }
@@ -286,22 +300,35 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate {
     public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         guard let episodeId = downloadTask.taskDescription else { return }
 
+        // Guard against HTTP error status codes (e.g. 403, 404, 500)
+        if let http = downloadTask.response as? HTTPURLResponse, http.statusCode >= 400 {
+            updateItemState(id: episodeId, state: .failed, errorMessage: "HTTP \(http.statusCode)")
+            activeTasks.removeValue(forKey: episodeId)
+            if activeTasks.isEmpty {
+                endBackgroundTask()
+            }
+            return
+        }
+
         let targetURL = StorageManager.shared.localFileURL(for: "\(episodeId).mp4")
         _ = StorageManager.shared.deleteFile(fileName: "\(episodeId).mp4")
 
         do {
             try FileManager.default.moveItem(at: location, to: targetURL)
-            if let idx = items.firstIndex(where: { $0.id == episodeId }) {
-                items[idx].bytesDownloaded = StorageManager.shared.fileSize(fileName: "\(episodeId).mp4")
-                items[idx].totalBytes = items[idx].bytesDownloaded
-            }
-            updateItemState(id: episodeId, state: .completed)
-            activeTasks.removeValue(forKey: episodeId)
-            if activeTasks.isEmpty {
-                endBackgroundTask()
-            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                if let idx = self.items.firstIndex(where: { $0.id == episodeId }) {
+                    let size = StorageManager.shared.fileSize(fileName: "\(episodeId).mp4")
+                    self.items[idx].bytesDownloaded = size
+                    self.items[idx].totalBytes = size
+                    self.items[idx].progress = 1.0
+                }
+                self.updateItemState(id: episodeId, state: .completed)
+                self.activeTasks.removeValue(forKey: episodeId)
+                if self.activeTasks.isEmpty {
+                    self.endBackgroundTask()
+                }
 
-            DispatchQueue.main.async {
                 NotificationCenter.default.post(name: .downloadCompleted, object: episodeId)
             }
         } catch {
@@ -314,19 +341,27 @@ public final class DownloadManager: NSObject, URLSessionDownloadDelegate {
     }
 
     public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        guard let episodeId = downloadTask.taskDescription,
-              let idx = items.firstIndex(where: { $0.id == episodeId }) else { return }
+        guard let episodeId = downloadTask.taskDescription else { return }
 
-        let progress = Float(totalBytesWritten) / Float(max(totalBytesExpectedToWrite, 1))
-        items[idx].progress = progress
-        items[idx].bytesDownloaded = totalBytesWritten
-        items[idx].totalBytes = max(totalBytesExpectedToWrite, totalBytesWritten)
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self,
+                  let idx = self.items.firstIndex(where: { $0.id == episodeId }) else { return }
 
-        let now = CACurrentMediaTime()
-        let lastTime = lastProgressPostTime[episodeId] ?? 0
-        if now - lastTime >= 0.25 || progress >= 1.0 {
-            lastProgressPostTime[episodeId] = now
-            DispatchQueue.main.async {
+            let progress: Float
+            if totalBytesExpectedToWrite > 0 {
+                progress = min(1.0, Float(totalBytesWritten) / Float(totalBytesExpectedToWrite))
+                self.items[idx].totalBytes = totalBytesExpectedToWrite
+            } else {
+                progress = 0.0
+                self.items[idx].totalBytes = -1
+            }
+            self.items[idx].progress = progress
+            self.items[idx].bytesDownloaded = totalBytesWritten
+
+            let now = CACurrentMediaTime()
+            let lastTime = self.lastProgressPostTime[episodeId] ?? 0
+            if now - lastTime >= 0.25 || progress >= 1.0 {
+                self.lastProgressPostTime[episodeId] = now
                 NotificationCenter.default.post(
                     name: .downloadProgress,
                     object: episodeId,

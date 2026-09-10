@@ -164,9 +164,13 @@ public final class DownloadsViewController: UIViewController, UITableViewDataSou
     }
 
     public func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        guard indexPath.row < DownloadManager.shared.items.count else { return }
         let item = DownloadManager.shared.items[indexPath.row]
         if item.state == .completed {
             playOfflineItem(item)
+        } else {
+            promptIncompleteItemOptions(item)
         }
     }
 
@@ -176,7 +180,7 @@ public final class DownloadsViewController: UIViewController, UITableViewDataSou
         case .completed:
             playOfflineItem(item)
         case .downloading:
-            DownloadManager.shared.pauseDownload(id: item.id)
+            promptIncompleteItemOptions(item)
         case .paused:
             DownloadManager.shared.resumeDownload(id: item.id)
         case .queued:
@@ -184,6 +188,57 @@ public final class DownloadsViewController: UIViewController, UITableViewDataSou
         case .failed:
             DownloadManager.shared.resumeDownload(id: item.id)
         }
+    }
+
+    private func promptIncompleteItemOptions(_ item: DownloadItem) {
+        let sheet = UIAlertController(
+            title: "\(item.animeTitle) - Ep \(item.episodeNumber)",
+            message: "Status: \(item.state.statusDescription) (\(item.formattedSize))",
+            preferredStyle: .actionSheet
+        )
+
+        sheet.addAction(UIAlertAction(title: "▶ Stream Online Now", style: .default) { [weak self] _ in
+            self?.playStreamItem(item)
+        })
+
+        if item.state == .downloading {
+            sheet.addAction(UIAlertAction(title: "⏸ Pause Download", style: .default) { _ in
+                DownloadManager.shared.pauseDownload(id: item.id)
+            })
+        } else if item.state == .paused || item.state == .failed {
+            sheet.addAction(UIAlertAction(title: "↻ Resume Download", style: .default) { _ in
+                DownloadManager.shared.resumeDownload(id: item.id)
+            })
+        }
+
+        sheet.addAction(UIAlertAction(title: "🗑️ Cancel & Remove", style: .destructive) { _ in
+            DownloadManager.shared.deleteDownload(id: item.id)
+        })
+
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = self.view
+            popover.sourceRect = CGRect(x: self.view.bounds.midX, y: self.view.bounds.midY, width: 1, height: 1)
+            popover.permittedArrowDirections = []
+        }
+        present(sheet, animated: true)
+    }
+
+    private func playStreamItem(_ item: DownloadItem) {
+        guard let url = URL(string: item.streamURL) else { return }
+        var targetURL = url
+        if AppSettings.shared.useProxyForStreams && AppSettings.shared.isCustomProxyConfigured {
+            targetURL = AnimeScraperEngine.proxiedURL(for: targetURL)
+        }
+
+        let playerVC = VideoPlayerViewController(
+            animeTitle: item.animeTitle,
+            episodeTitle: "Episode \(item.episodeNumber)",
+            mediaURL: targetURL,
+            isOffline: false
+        )
+        present(playerVC, animated: true)
     }
 
     private func playOfflineItem(_ item: DownloadItem) {

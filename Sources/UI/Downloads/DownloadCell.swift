@@ -112,8 +112,12 @@ public final class DownloadCell: UITableViewCell {
         case .downloading:
             progressView.isHidden = false
             progressView.progress = item.progress
-            let pct = Int(item.progress * 100)
-            statusLabel.text = "Downloading \(pct)% • \(item.formattedSize)"
+            if item.totalBytes > 0 {
+                let pct = Int(item.progress * 100)
+                statusLabel.text = "Downloading \(pct)% • \(item.formattedSize)"
+            } else {
+                statusLabel.text = "Downloading • \(item.formattedSize)"
+            }
             statusLabel.textColor = AppTheme.secondaryAccent
             actionButton.setTitle("⏸ Pause", for: .normal)
             actionButton.backgroundColor = AppTheme.cardBackground

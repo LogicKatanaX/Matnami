@@ -30,9 +30,10 @@ public final class AnimeScraperEngine {
         self.session = URLSession(configuration: config)
     }
 
-    /// Wraps any URL through the Cloudflare Edge Worker reverse proxy (always-on architecture)
+    /// Wraps any URL through the configured Cloudflare Edge Worker reverse proxy
     public static func proxiedURL(for url: URL) -> URL {
-        if url.absoluteString.hasPrefix(proxyBase) || url.isFileURL {
+        let proxyBase = AppSettings.shared.proxyBaseUrl
+        if proxyBase.isEmpty || url.absoluteString.hasPrefix(proxyBase) || url.isFileURL {
             return url
         }
         let encoded = url.absoluteString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? url.absoluteString
@@ -481,28 +482,41 @@ public final class AnimeScraperEngine {
 
             // If direct video wasn't found on the directory page, follow intermediate media page link (e.g. CartoonsArea "01 First Touch.mp4.php")
             if videoSources.isEmpty {
-                if let mediaPageEl = try? doc.select("a[href*='.mp4.php'], a[href*='.php'], .directory-list a[href*='.mp4'], .directory-list a").first(),
-                   var mediaHref = try? mediaPageEl.attr("href"), !mediaHref.isEmpty {
-                    mediaHref = mediaHref.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if mediaHref.hasPrefix("//") { mediaHref = "https:" + mediaHref }
-                    let encMedia = mediaHref.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? mediaHref
-                    if let mediaURL = URL(string: encMedia, relativeTo: url) {
-                        let mediaReq = self.makeURLRequest(url: mediaURL, useProxy: source.useProxy)
-                        self.session.dataTask(with: mediaReq) { mData, _, _ in
-                            guard let mData = mData,
-                                  let mHtml = String(data: mData, encoding: .utf8) ?? String(data: mData, encoding: .ascii) else {
-                                DispatchQueue.main.async { completion(.success(videoSources)) }
-                                return
-                            }
-                            let resolved = DirectMP4Resolver.shared.resolveFromHTML(mHtml, pageURL: mediaURL)
-                            let finalSources = resolved.isEmpty ? videoSources : resolved
-                            if !finalSources.isEmpty {
-                                self.cacheEpisodeSources(for: episode.id, sources: finalSources)
-                            }
-                            DispatchQueue.main.async { completion(.success(finalSources)) }
-                        }.resume()
-                        return
+                let candidateLinks = (try? doc.select("a[href*='.mp4.php'], .directory-list a[href*='.mp4'], a[href*='.php'], .directory-list a").array()) ?? []
+                var bestMediaURL: URL? = nil
+
+                for cLink in candidateLinks {
+                    guard let rawHref = try? cLink.attr("href"), !rawHref.isEmpty else { continue }
+                    let lower = rawHref.lowercased()
+                    // Filter out non-media static site links
+                    if lower.contains("privacy") || lower.contains("disclaimer") || lower.contains("contact") || lower.contains("facebook") || lower.contains("twitter") {
+                        continue
                     }
+                    if let validURL = DirectMP4Resolver.shared.sanitizeMediaURL(rawURLString: rawHref, baseURL: url) {
+                        bestMediaURL = validURL
+                        // If it contains .mp4, it's our top priority
+                        if lower.contains(".mp4") {
+                            break
+                        }
+                    }
+                }
+
+                if let mediaURL = bestMediaURL {
+                    let mediaReq = self.makeURLRequest(url: mediaURL, useProxy: source.useProxy)
+                    self.session.dataTask(with: mediaReq) { mData, _, _ in
+                        guard let mData = mData,
+                              let mHtml = String(data: mData, encoding: .utf8) ?? String(data: mData, encoding: .ascii) else {
+                            DispatchQueue.main.async { completion(.success(videoSources)) }
+                            return
+                        }
+                        let resolved = DirectMP4Resolver.shared.resolveFromHTML(mHtml, pageURL: mediaURL)
+                        let finalSources = resolved.isEmpty ? videoSources : resolved
+                        if !finalSources.isEmpty {
+                            self.cacheEpisodeSources(for: episode.id, sources: finalSources)
+                        }
+                        DispatchQueue.main.async { completion(.success(finalSources)) }
+                    }.resume()
+                    return
                 }
             }
 
