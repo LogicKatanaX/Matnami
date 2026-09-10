@@ -60,7 +60,7 @@ public final class DirectMP4Resolver {
             }
         }
 
-        // 2. Scan download mirror buttons (Gofile, Pixeldrain, Wibufile)
+        // 2. Scan download mirror buttons (Gofile, Pixeldrain, Wibufile, Krakenfiles)
         if let linkElements = try? doc.select("a[href]") {
             for link in linkElements.array() {
                 let href = (try? link.attr("href")) ?? ""
@@ -68,22 +68,43 @@ public final class DirectMP4Resolver {
                 guard let targetURL = URL(string: href, relativeTo: pageURL)?.absoluteURL else { continue }
                 let host = targetURL.host?.lowercased() ?? ""
 
-                if isDirectMediaURL(targetURL) || host.contains("pixeldrain.com") || host.contains("gofile.io") {
-                    let quality = parseQuality(from: text + " " + href)
-                    let name = host.replacingOccurrences(of: "www.", with: "").capitalized
-                    sources.append(VideoSource(
-                        serverName: name.isEmpty ? "Mirror" : name,
-                        quality: quality,
-                        streamURL: targetURL,
-                        referer: pageURL.absoluteString,
-                        isDirectDownload: true,
-                        format: .mp4,
-                        headers: [
-                            "Referer": pageURL.absoluteString,
-                            "User-Agent": desktopUA
-                        ]
-                    ))
+                var streamURL = targetURL
+                var isDirect = false
+
+                if host.contains("pixeldrain.com") {
+                    let path = targetURL.path
+                    if path.contains("/u/") {
+                        let fileId = path.replacingOccurrences(of: "/u/", with: "")
+                        if let apiURL = URL(string: "https://pixeldrain.com/api/file/\(fileId)") {
+                            streamURL = apiURL
+                            isDirect = true
+                        }
+                    }
+                } else if isDirectMediaURL(targetURL) {
+                    isDirect = true
+                } else if host.contains("gofile.io") || host.contains("krakenfiles.com") {
+                    isDirect = true
+                } else {
+                    continue
                 }
+
+                let parentText = (try? link.parent()?.text()) ?? ""
+                let quality = parseQuality(from: parentText + " " + text + " " + href)
+                let name = host.replacingOccurrences(of: "www.", with: "").capitalized
+
+                let finalURL = AnimeScraperEngine.proxiedURL(for: streamURL)
+                sources.append(VideoSource(
+                    serverName: name.isEmpty ? "Mirror" : name,
+                    quality: quality,
+                    streamURL: finalURL,
+                    referer: pageURL.absoluteString,
+                    isDirectDownload: isDirect,
+                    format: .mp4,
+                    headers: [
+                        "Referer": pageURL.absoluteString,
+                        "User-Agent": desktopUA
+                    ]
+                ))
             }
         }
 

@@ -259,6 +259,8 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
         let title = isForDownload ? "Choose Download Quality / Server" : "Select Streaming Server"
         let sheet = UIAlertController(title: title, message: episode.title, preferredStyle: .actionSheet)
 
+        for s in sources {
+            let label = "\(s.serverName) [\(s.quality.rawValue)]" + (s.isDirectDownload ? " ⚡Direct" : "")
         let preferred = AppSettings.shared.preferredQuality
         // Sort matching preferred quality to the top, then 720p, then 1080p, then 480p
         let sortedSources = sources.sorted { a, b in

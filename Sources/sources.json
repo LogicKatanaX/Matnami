@@ -6,7 +6,7 @@
     "catalogPattern": "https://v2.samehadaku.how/daftar-anime-2/page/{page}/",
     "searchPattern": "https://v2.samehadaku.how/?s={query}",
     "cardSelector": ".animepost, .animpost, article.animpost",
-    "linkSelector": "a[href*='/anime/'], .animposx a",
+    "linkSelector": ".animposx a[href*='/anime/'], a[href*='/anime/']",
     "titleSelector": ".title, .tt h4, h2",
     "coverSelector": ".content-thumb img, img",
     "scoreSelector": ".score",
@@ -14,10 +14,30 @@
     "episodeListSelector": ".lstepsiode ul li, .episodelst ul li",
     "episodeLinkSelector": "a",
     "episodeTitleSelector": ".eps a, .title a, a",
-    "playerIframeSelector": "#pembed iframe, .player-embed iframe",
-    "serverItemSelector": ".server-item, .east_player_option",
+    "playerIframeSelector": "#pembed iframe, .player-embed iframe, iframe[src]",
+    "serverItemSelector": ".server-item, .east_player_option, [data-post]",
     "ajaxAction": "player_ajax",
-    "useProxy": false
+    "useProxy": true
+  },
+  {
+    "id": "9anime",
+    "name": "9anime",
+    "baseURL": "https://9anime.skin",
+    "catalogPattern": "https://9anime.skin/page/{page}/",
+    "searchPattern": "https://9anime.skin/?s={query}",
+    "cardSelector": "a[href*='/anime/'], a[href*='/watch/'], a[href*='/series/']",
+    "linkSelector": "a[href*='/anime/'], a[href*='/watch/'], a[href]",
+    "titleSelector": "h2, h3, .title",
+    "coverSelector": "img",
+    "scoreSelector": ".score, .rating",
+    "synopsisSelector": ".desc, .entry-content",
+    "episodeListSelector": ".episodelist ul li, .lstepsiode ul li, a[href*='/episode']",
+    "episodeLinkSelector": "a",
+    "episodeTitleSelector": "a",
+    "playerIframeSelector": "#pembed iframe, .player-embed iframe, iframe[src]",
+    "serverItemSelector": ".server-item, .mirror",
+    "ajaxAction": null,
+    "useProxy": true
   },
   {
     "id": "nekopoi",
@@ -37,7 +57,7 @@
     "playerIframeSelector": "#player iframe, .player iframe",
     "serverItemSelector": ".server, .mirror",
     "ajaxAction": null,
-    "useProxy": false
+    "useProxy": true
   },
   {
     "id": "otakudesu",
@@ -57,26 +77,6 @@
     "playerIframeSelector": ".player-area iframe",
     "serverItemSelector": ".mirrorstream ul li a",
     "ajaxAction": null,
-    "useProxy": false
-  },
-  {
-    "id": "9anime",
-    "name": "9anime",
-    "baseURL": "https://9anime.skin",
-    "catalogPattern": "https://9anime.skin/page/{page}/",
-    "searchPattern": "https://9anime.skin/?s={query}",
-    "cardSelector": "a[href*='/anime/'], a[href*='/watch/'], a[href*='/series/']",
-    "linkSelector": "a[href]",
-    "titleSelector": "h2, h3, .title",
-    "coverSelector": "img",
-    "scoreSelector": ".score, .rating",
-    "synopsisSelector": ".desc, .entry-content",
-    "episodeListSelector": ".episodelist ul li, .lstepsiode ul li, a[href*='/episode']",
-    "episodeLinkSelector": "a",
-    "episodeTitleSelector": "a",
-    "playerIframeSelector": "#pembed iframe, .player-embed iframe, iframe[src]",
-    "serverItemSelector": ".server-item, .mirror",
-    "ajaxAction": null,
-    "useProxy": false
+    "useProxy": true
   }
 ]

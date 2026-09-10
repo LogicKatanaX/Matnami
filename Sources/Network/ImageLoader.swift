@@ -46,9 +46,10 @@ public final class ImageLoader {
             return nil
         }
 
-        var request = URLRequest(url: url)
+        let proxiedURL = AnimeScraperEngine.proxiedURL(for: url)
+        var request = URLRequest(url: proxiedURL)
         request.setValue(
-            "Mozilla/5.0 (iPad; CPU OS 12_5_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.1.2 Mobile/15E148 Safari/604.1",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
             forHTTPHeaderField: "User-Agent"
         )
 

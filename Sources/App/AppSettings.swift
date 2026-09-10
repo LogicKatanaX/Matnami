@@ -6,8 +6,10 @@ public final class AppSettings {
     private let defaults = UserDefaults.standard
 
     private let keyQuality = "com.matnami.pref_quality"
-    private let keyProxy = "com.matnami.pref_use_proxy"
     private let keyOTAUrl = "com.matnami.pref_ota_url"
+
+    /// Cloudflare Worker Reverse Proxy Base Endpoint (Always-on architecture)
+    public let proxyBaseUrl: String = "https://manga-proxy.santamcyber.workers.dev/?url="
 
     private init() {}
 
@@ -25,16 +27,6 @@ public final class AppSettings {
         }
     }
 
-    /// Global Cloudflare Worker reverse proxy toggle
-    public var useProxyByDefault: Bool {
-        get {
-            return defaults.bool(forKey: keyProxy)
-        }
-        set {
-            defaults.set(newValue, forKey: keyProxy)
-        }
-    }
-
     /// Custom OTA sources.json URL
     public var customOTAUrl: String {
         get {
@@ -42,18 +34,6 @@ public final class AppSettings {
         }
         set {
             defaults.set(newValue, forKey: keyOTAUrl)
-        }
-    }
-
-    private let keyProxyUrl = "com.matnami.pref_proxy_url"
-
-    /// Cloudflare Worker Reverse Proxy Base Endpoint
-    public var proxyBaseUrl: String {
-        get {
-            return defaults.string(forKey: keyProxyUrl) ?? "https://manga-proxy.santamcyber.workers.dev/?url="
-        }
-        set {
-            defaults.set(newValue, forKey: keyProxyUrl)
         }
     }
 }
