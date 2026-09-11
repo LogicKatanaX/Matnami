@@ -106,5 +106,89 @@ public final class ImageLoader {
 
         return UIImage(cgImage: thumbnail)
     }
+
+    /// Generates a rich, high-resolution procedural anime poster card for iOS 12
+    public func generatePosterPlaceholder(for title: String, size: CGSize = CGSize(width: 300, height: 420)) -> UIImage {
+        let cacheKey = NSString(string: "poster_placeholder_\(title)")
+        if let cached = cache.object(forKey: cacheKey) {
+            return cached
+        }
+
+        let palettes: [[(r: CGFloat, g: CGFloat, b: CGFloat)]] = [
+            [(15/255.0, 12/255.0, 41/255.0), (48/255.0, 43/255.0, 99/255.0), (36/255.0, 36/255.0, 62/255.0)],
+            [(20/255.0, 10/255.0, 15/255.0), (65/255.0, 20/255.0, 35/255.0), (30/255.0, 12/255.0, 25/255.0)],
+            [(10/255.0, 25/255.0, 20/255.0), (25/255.0, 55/255.0, 45/255.0), (12/255.0, 30/255.0, 25/255.0)],
+            [(15/255.0, 20/255.0, 35/255.0), (25/255.0, 50/255.0, 80/255.0), (18/255.0, 28/255.0, 50/255.0)],
+            [(25/255.0, 15/255.0, 45/255.0), (68/255.0, 32/255.0, 98/255.0), (35/255.0, 18/255.0, 55/255.0)]
+        ]
+
+        let hashVal = abs(title.hashValue)
+        let selectedPalette = palettes[hashVal % palettes.count]
+
+        UIGraphicsBeginImageContextWithOptions(size, true, 1.0)
+        guard let ctx = UIGraphicsGetCurrentContext() else {
+            return UIImage()
+        }
+
+        // Draw smooth vertical linear gradient
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        var components: [CGFloat] = []
+        for color in selectedPalette {
+            components.append(contentsOf: [color.r, color.g, color.b, 1.0])
+        }
+        let locations: [CGFloat] = [0.0, 0.5, 1.0]
+        if let gradient = CGGradient(colorSpace: colorSpace, colorComponents: components, locations: locations, count: 3) {
+            ctx.drawLinearGradient(gradient, start: CGPoint(x: size.width / 2, y: 0), end: CGPoint(x: size.width / 2, y: size.height), options: [])
+        }
+
+        // Draw decorative subtle inner frame
+        ctx.setStrokeColor(UIColor(white: 1.0, alpha: 0.12).cgColor)
+        ctx.setLineWidth(1.5)
+        let frameRect = CGRect(x: 12, y: 12, width: size.width - 24, height: size.height - 24)
+        ctx.stroke(frameRect)
+
+        // Draw stylized film reel / anime icon watermark in upper center
+        let iconSize: CGFloat = 54
+        let iconRect = CGRect(x: (size.width - iconSize) / 2, y: size.height * 0.28, width: iconSize, height: iconSize)
+        ctx.setFillColor(UIColor(white: 1.0, alpha: 0.15).cgColor)
+        ctx.fillEllipse(in: iconRect)
+        ctx.setStrokeColor(UIColor(white: 1.0, alpha: 0.35).cgColor)
+        ctx.setLineWidth(2.0)
+        ctx.strokeEllipse(in: iconRect)
+
+        // Draw anime play triangle inside watermark
+        ctx.setFillColor(UIColor(white: 1.0, alpha: 0.45).cgColor)
+        let triPath = CGMutablePath()
+        let cx = iconRect.midX
+        let cy = iconRect.midY
+        triPath.move(to: CGPoint(x: cx - 8, y: cy - 12))
+        triPath.addLine(to: CGPoint(x: cx + 12, y: cy))
+        triPath.addLine(to: CGPoint(x: cx - 8, y: cy + 12))
+        triPath.closeSubpath()
+        ctx.addPath(triPath)
+        ctx.fillPath()
+
+        // Draw title text
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .center
+        paragraphStyle.lineBreakMode = .byWordWrapping
+
+        let titleAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 17, weight: .bold),
+            .foregroundColor: UIColor.white,
+            .paragraphStyle: paragraphStyle
+        ]
+
+        let textRect = CGRect(x: 20, y: size.height * 0.50, width: size.width - 40, height: size.height * 0.42)
+        (cleanTitle as NSString).draw(in: textRect, withAttributes: titleAttrs)
+
+        let image = UIGraphicsGetImageFromCurrentImageContext() ?? UIImage()
+        UIGraphicsEndImageContext()
+
+        let cost = Int(size.width * size.height * 4)
+        cache.setObject(image, forKey: cacheKey, cost: cost)
+        return image
+    }
 }
 

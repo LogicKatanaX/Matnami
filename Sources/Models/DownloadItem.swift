@@ -78,17 +78,27 @@ public struct DownloadItem: Codable, Equatable {
         self.errorMessage = errorMessage
     }
 
+    public static func formatByteCount(_ bytes: Int64) -> String {
+        guard bytes > 0 else { return "0 KB" }
+        if bytes < 1024 * 1024 {
+            let kb = Double(bytes) / 1024.0
+            return String(format: "%.0f KB", kb)
+        } else if bytes >= 1024 * 1024 * 1024 {
+            let gb = Double(bytes) / (1024.0 * 1024.0 * 1024.0)
+            return String(format: "%.2f GB", gb)
+        } else {
+            let mb = Double(bytes) / (1024.0 * 1024.0)
+            return String(format: "%.1f MB", mb)
+        }
+    }
+
     public var formattedSize: String {
         if totalBytes > 0 && bytesDownloaded > 0 {
-            let downloadedMB = Double(bytesDownloaded) / (1024 * 1024)
-            let totalMB = Double(totalBytes) / (1024 * 1024)
-            return String(format: "%.1f / %.1f MB", downloadedMB, totalMB)
+            return "\(DownloadItem.formatByteCount(bytesDownloaded)) / \(DownloadItem.formatByteCount(totalBytes))"
         } else if totalBytes > 0 {
-            let totalMB = Double(totalBytes) / (1024 * 1024)
-            return String(format: "0 / %.1f MB", totalMB)
+            return "0 / \(DownloadItem.formatByteCount(totalBytes))"
         } else if bytesDownloaded > 0 {
-            let downloadedMB = Double(bytesDownloaded) / (1024 * 1024)
-            return String(format: "%.1f MB", downloadedMB)
+            return DownloadItem.formatByteCount(bytesDownloaded)
         } else {
             return "Starting..."
         }

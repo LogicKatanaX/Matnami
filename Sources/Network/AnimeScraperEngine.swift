@@ -979,19 +979,7 @@ public final class AnimeScraperEngine {
             ))
         }
 
-        // 3. Direct HTTP Mirror (if AnimeTosho)
-        if let tosho = toshoItem, let tURLStr = tosho.torrentURL, tURLStr.contains("storage.animetosho.org"), let mirrorURL = URL(string: tURLStr) {
-            sources.append(VideoSource(
-                serverName: "🌐 Direct AnimeTosho Storage Mirror",
-                quality: .high1080p,
-                streamURL: mirrorURL,
-                referer: "https://animetosho.org",
-                isDirectDownload: true,
-                format: .mkv
-            ))
-        }
-
-        // 4. Cloud Debrid (if configured in AppSettings)
+        // 3. Cloud Debrid (if configured in AppSettings)
         let magnetURI = torrentItem?.magnetURI ?? toshoItem?.magnetURI ?? ""
         if AppSettings.shared.debridProvider != .none && !AppSettings.shared.debridApiToken.isEmpty && !magnetURI.isEmpty {
             DebridService.shared.resolveMagnetToDirectURL(magnetURI: magnetURI) { [weak self] result in

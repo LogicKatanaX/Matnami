@@ -127,9 +127,44 @@ public final class StorageManager {
 
     public func formatBytes(_ bytes: Int64) -> String {
         let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useGB, .useMB]
+        formatter.allowedUnits = [.useGB, .useMB, .useKB]
         formatter.countStyle = .file
         return formatter.string(fromByteCount: bytes)
+    }
+
+    /// Returns list of all saved .torrent files in Downloads directory
+    public func getSavedTorrentFiles() -> [(name: String, size: Int64, url: URL)] {
+        guard let files = try? FileManager.default.contentsOfDirectory(at: downloadsDirectory, includingPropertiesForKeys: [.fileSizeKey]) else {
+            return []
+        }
+        var torrents: [(name: String, size: Int64, url: URL)] = []
+        for file in files where file.pathExtension.lowercased() == "torrent" {
+            let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            torrents.append((name: file.lastPathComponent, size: Int64(size), url: file))
+        }
+        return torrents
+    }
+
+    /// Deletes all saved .torrent files from Downloads directory
+    @discardableResult
+    public func deleteAllTorrentFiles() -> Int {
+        let torrents = getSavedTorrentFiles()
+        var count = 0
+        for item in torrents {
+            do {
+                try FileManager.default.removeItem(at: item.url)
+                count += 1
+            } catch {
+                print("StorageManager: Failed to delete torrent file \(item.name): \(error)")
+            }
+        }
+        return count
+    }
+
+    /// Total bytes occupied by .torrent files in Downloads directory
+    public var totalTorrentFilesSpace: Int64 {
+        let torrents = getSavedTorrentFiles()
+        return torrents.reduce(0) { $0 + $1.size }
     }
 }
 

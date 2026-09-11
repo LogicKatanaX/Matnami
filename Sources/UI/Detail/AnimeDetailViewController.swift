@@ -122,9 +122,15 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
 
         tableView.tableHeaderView = headerView
 
+        // Set procedural poster placeholder immediately
+        coverImageView.image = ImageLoader.shared.generatePosterPlaceholder(for: anime.title)
+
         if !anime.coverURL.isEmpty {
             _ = ImageLoader.shared.loadImage(from: anime.coverURL, maxDimension: 512) { [weak self] img in
-                self?.coverImageView.image = img
+                guard let self = self, let img = img else { return }
+                UIView.transition(with: self.coverImageView, duration: 0.25, options: .transitionCrossDissolve, animations: {
+                    self.coverImageView.image = img
+                }, completion: nil)
             }
         }
     }
@@ -168,6 +174,16 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
                 self.episodes = epList
                 self.synopsisTextView.text = updatedAnime.synopsis.isEmpty ? "No synopsis available." : updatedAnime.synopsis
                 self.titleLabel.text = updatedAnime.title
+
+                if !updatedAnime.coverURL.isEmpty {
+                    _ = ImageLoader.shared.loadImage(from: updatedAnime.coverURL, maxDimension: 512) { [weak self] img in
+                        guard let self = self, let img = img else { return }
+                        UIView.transition(with: self.coverImageView, duration: 0.3, options: .transitionCrossDissolve, animations: {
+                            self.coverImageView.image = img
+                        }, completion: nil)
+                    }
+                }
+
                 self.tableView.reloadData()
             case .failure(let error):
                 let alert = UIAlertController(title: "Failed to load episodes", message: error.localizedDescription, preferredStyle: .alert)
@@ -409,36 +425,30 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
     private func presentPlayOrDownloadPicker(sources: [VideoSource], episode: Episode) {
         let torrentSource = sources.first(where: { $0.format == .torrent })
         let magnetSource = sources.first(where: { $0.format == .magnet })
-        let streamableSource = sources.first(where: { $0.format == .mp4 || $0.format == .hls })
-        let mirrorSource = sources.first(where: { $0.format == .mkv })
+        let streamableSources = sources.filter { $0.format == .mp4 || $0.format == .hls }
 
         let sheet = UIAlertController(
             title: episode.title,
-            message: "Playback & Download Options for iPad:",
+            message: "Playback & Download Options for iPad Air:",
             preferredStyle: .actionSheet
         )
 
-        // 1. Instant Online Playback (Debrid or direct stream)
-        if let stream = streamableSource {
+        // 1. Instant Online Playback & Real Video Download (if Debrid or direct MP4 exists)
+        if !streamableSources.isEmpty {
             sheet.addAction(UIAlertAction(title: "▶ Play Online (Instant Stream)", style: .default) { [weak self] _ in
-                self?.presentStreamingQualityPicker(sources: sources.filter { $0.format == .mp4 || $0.format == .hls }, episode: episode)
+                self?.presentStreamingQualityPicker(sources: streamableSources, episode: episode)
             })
-            sheet.addAction(UIAlertAction(title: "⬇ Download Video (Offline)", style: .default) { [weak self] _ in
-                self?.presentDownloadQualityPicker(sources: sources.filter { $0.format == .mp4 || $0.format == .hls }, episode: episode)
+            sheet.addAction(UIAlertAction(title: "⬇ Download Video to iPad", style: .default) { [weak self] _ in
+                self?.presentDownloadQualityPicker(sources: streamableSources, episode: episode)
             })
-        }
-
-        // 2. Direct HTTP Mirror (AnimeTosho)
-        if let mirror = mirrorSource {
-            sheet.addAction(UIAlertAction(title: "⬇ Download Video File (Mirror HTTP)", style: .default) { [weak self] _ in
-                guard let self = self else { return }
-                DownloadManager.shared.startDownload(anime: self.anime, episode: episode, videoSource: mirror)
-                self.updateNavBarButtons()
-                self.tableView.reloadData()
+        } else if magnetSource != nil || torrentSource != nil {
+            // Offer Free Cloud Debrid to convert torrent to direct video download
+            sheet.addAction(UIAlertAction(title: "⚡ Download Video via Free Cloud Debrid (Torbox)", style: .default) { [weak self] _ in
+                self?.promptSetupDebrid(episode: episode, magnetSource: magnetSource)
             })
         }
 
-        // 3. Save .torrent to Files App
+        // 2. Save .torrent to Files App
         if let tSrc = torrentSource {
             sheet.addAction(UIAlertAction(title: "⬇ Save .torrent to Files App", style: .default) { [weak self] _ in
                 guard let self = self else { return }
@@ -447,16 +457,16 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
             })
         }
 
-        // 4. Copy Magnet Link
+        // 3. Copy Magnet Link / Open Torrent App
         if let mSrc = magnetSource {
-            sheet.addAction(UIAlertAction(title: "🧲 Copy Magnet Link", style: .default) { [weak self] _ in
+            sheet.addAction(UIAlertAction(title: "🧲 Copy Magnet / Open Torrent App", style: .default) { [weak self] _ in
                 guard let self = self else { return }
                 TorrentActionHelper.shared.copyMagnet(uri: mSrc.streamURL.absoluteString, from: self)
             })
         }
 
-        // If it's a standard web source without torrents, fallback to standard stream / download
-        if torrentSource == nil && magnetSource == nil && streamableSource == nil && mirrorSource == nil {
+        // Fallback for non-torrent sources if any
+        if torrentSource == nil && magnetSource == nil && streamableSources.isEmpty {
             sheet.addAction(UIAlertAction(title: "▶ Play Online (Instant Stream)", style: .default) { [weak self] _ in
                 self?.presentStreamingQualityPicker(sources: sources, episode: episode)
             })
@@ -473,6 +483,46 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
             popover.permittedArrowDirections = []
         }
         present(sheet, animated: true)
+    }
+
+    private func promptSetupDebrid(episode: Episode, magnetSource: VideoSource?) {
+        let alert = UIAlertController(
+            title: "⚡ Free Cloud Video Download",
+            message: "On iOS 12, P2P torrent swarms consume high battery and cannot run in background.\n\nTorbox downloads torrents in 2 seconds in the cloud and provides a direct, high-speed MP4 video download link!\n\nTorbox has a 100% Free plan with no credit card required.",
+            preferredStyle: .alert
+        )
+
+        alert.addTextField { tf in
+            tf.placeholder = "Paste Torbox API Key here"
+            tf.isSecureTextEntry = true
+            tf.autocapitalizationType = .none
+            tf.autocorrectionType = .no
+            if !AppSettings.shared.debridApiToken.isEmpty {
+                tf.text = AppSettings.shared.debridApiToken
+            }
+        }
+
+        alert.addAction(UIAlertAction(title: "Save Key & Download", style: .default) { [weak self] _ in
+            guard let self = self else { return }
+            let entered = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !entered.isEmpty {
+                AppSettings.shared.debridProvider = .torbox
+                AppSettings.shared.debridApiToken = entered
+                // Re-resolve sources with new Debrid key!
+                self.resolveSources(for: episode) { newSources in
+                    self.presentPlayOrDownloadPicker(sources: newSources, episode: episode)
+                }
+            }
+        })
+
+        alert.addAction(UIAlertAction(title: "🌐 Get Free Key (Torbox.app)", style: .default) { _ in
+            if let url = URL(string: "https://torbox.app") {
+                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+            }
+        })
+
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+        present(alert, animated: true)
     }
 
     private func presentStreamingQualityPicker(sources: [VideoSource], episode: Episode) {

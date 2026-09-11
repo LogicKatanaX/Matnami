@@ -25,8 +25,8 @@ public final class SettingsViewController: UITableViewController {
     public override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch section {
         case 0: return qualityOptions.count // Preferred Video Quality
-        case 1: return 4                    // Torrent, Cloud Debrid & Player
-        case 2: return 3                    // Storage & Deletion Management
+        case 1: return 6                    // Torrent, Cloud Debrid & Player
+        case 2: return 5                    // Storage & Deletion Management
         case 3: return 5                    // Anime Sources & Custom Websites
         case 4: return 4                    // Cloudflare Edge Proxy (ISP Bypass)
         case 5: return 2                    // Device & Architecture Info
@@ -81,6 +81,15 @@ public final class SettingsViewController: UITableViewController {
                 cell.detailTextLabel?.textColor = AppSettings.shared.debridApiToken.isEmpty ? AppTheme.textSecondary : AppTheme.success
                 cell.accessoryType = .disclosureIndicator
             } else if indexPath.row == 2 {
+                cell.textLabel?.text = "🌐 Get Free Torbox API Key"
+                cell.detailTextLabel?.text = "torbox.app ↗"
+                cell.textLabel?.textColor = AppTheme.primaryAccent
+                cell.accessoryType = .disclosureIndicator
+            } else if indexPath.row == 3 {
+                cell.textLabel?.text = "📖 iOS 12 Torrent & Download Guide"
+                cell.detailTextLabel?.text = "iTorrent & Seedbox"
+                cell.accessoryType = .disclosureIndicator
+            } else if indexPath.row == 4 {
                 cell.textLabel?.text = "Default Video Player"
                 let vlc = AppSettings.shared.preferVLC
                 cell.detailTextLabel?.text = vlc ? "VLC for iOS" : "Matnami Player"
@@ -101,6 +110,17 @@ public final class SettingsViewController: UITableViewController {
                 cell.accessoryType = .disclosureIndicator
                 cell.textLabel?.textColor = AppTheme.primaryAccent
             } else if indexPath.row == 1 {
+                let torrents = StorageManager.shared.getSavedTorrentFiles()
+                let torrentSpace = StorageManager.shared.formatBytes(StorageManager.shared.totalTorrentFilesSpace)
+                cell.textLabel?.text = "Clean .torrent Files"
+                cell.detailTextLabel?.text = "\(torrents.count) files (\(torrentSpace))"
+                cell.accessoryType = .disclosureIndicator
+                cell.textLabel?.textColor = UIColor(red: 1.0, green: 0.45, blue: 0.2, alpha: 1.0)
+            } else if indexPath.row == 2 {
+                cell.textLabel?.text = "📂 File Location in Files App"
+                cell.detailTextLabel?.text = "On My iPad → Matnami"
+                cell.accessoryType = .disclosureIndicator
+            } else if indexPath.row == 3 {
                 cell.textLabel?.text = "Clear Image & Web Cache"
                 cell.detailTextLabel?.text = "Free RAM (< 180MB)"
                 cell.textLabel?.textColor = AppTheme.secondaryAccent
@@ -190,6 +210,12 @@ public final class SettingsViewController: UITableViewController {
             } else if indexPath.row == 1 {
                 promptEditDebridToken()
             } else if indexPath.row == 2 {
+                if let url = URL(string: "https://torbox.app") {
+                    UIApplication.shared.open(url, options: [:], completionHandler: nil)
+                }
+            } else if indexPath.row == 3 {
+                showTorrentGuide()
+            } else if indexPath.row == 4 {
                 AppSettings.shared.preferVLC.toggle()
                 tableView.reloadRows(at: [indexPath], with: .none)
             } else {
@@ -200,6 +226,13 @@ public final class SettingsViewController: UITableViewController {
             if indexPath.row == 0 {
                 confirmClearDownloads()
             } else if indexPath.row == 1 {
+                cleanTorrentFiles()
+            } else if indexPath.row == 2 {
+                showAlert(
+                    title: "File Location on iPad Air",
+                    message: "All downloaded files are directly accessible in Apple's built-in Files app:\n\nFiles app → Locations → On My iPad → Matnami → Downloads\n\nYou can view, rename, play in VLC, or delete any file directly there!"
+                )
+            } else if indexPath.row == 3 {
                 clearCaches()
             } else {
                 confirmResetApplication()
@@ -317,6 +350,42 @@ public final class SettingsViewController: UITableViewController {
         StorageManager.shared.clearTempDirectory()
         URLCache.shared.removeAllCachedResponses()
         showAlert(title: "Cache Cleared", message: "Image thumbnails and temporary web caches have been purged to optimize 1GB RAM.")
+    }
+
+    private func showTorrentGuide() {
+        let alert = UIAlertController(
+            title: "📖 Torrent & Download Guide",
+            message: "How to Download & Watch on iPad Air 1 (iOS 12):\n\n1. ⚡ Free Cloud Debrid (Recommended):\nGet a free API key at torbox.app (no credit card). Enter it in Settings. Matnami will convert any torrent into a direct high-speed MP4 download at 100 Mbps using native background downloads.\n\n2. 🚀 iTorrent Client for iOS 12:\nSideload iTorrent 1.8.x IPA via Sideloadly. When you tap 'Save .torrent' or 'Copy Magnet' in Matnami, choose Open in iTorrent to download P2P.\n\n3. 📂 Storage Location:\nFiles app → On My iPad → Matnami → Downloads.\nPlay offline videos directly in Matnami or tap 'Open in VLC'!",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "🌐 Open Torbox.app", style: .default) { _ in
+            if let url = URL(string: "https://torbox.app") {
+                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+            }
+        })
+        alert.addAction(UIAlertAction(title: "Done", style: .cancel, handler: nil))
+        present(alert, animated: true)
+    }
+
+    private func cleanTorrentFiles() {
+        let torrents = StorageManager.shared.getSavedTorrentFiles()
+        if torrents.isEmpty {
+            showAlert(title: "No Torrent Files Found", message: "Your Downloads folder has no .torrent files to delete.")
+            return
+        }
+        let space = StorageManager.shared.formatBytes(StorageManager.shared.totalTorrentFilesSpace)
+        let alert = UIAlertController(
+            title: "Clean .torrent Files?",
+            message: "Delete \(torrents.count) .torrent metadata files (\(space)) from Downloads?\n\nYour downloaded video files will remain safe and untouched.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+        alert.addAction(UIAlertAction(title: "Delete .torrent Files", style: .destructive) { [weak self] _ in
+            let count = StorageManager.shared.deleteAllTorrentFiles()
+            self?.tableView.reloadSections(IndexSet(integer: 2), with: .none)
+            self?.showAlert(title: "Clean Complete", message: "Successfully deleted \(count) .torrent files.")
+        })
+        present(alert, animated: true)
     }
 
     private func confirmResetApplication() {

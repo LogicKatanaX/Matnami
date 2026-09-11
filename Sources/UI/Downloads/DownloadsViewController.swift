@@ -28,16 +28,54 @@ public final class DownloadsViewController: UIViewController, UITableViewDataSou
     }
 
     private func updateNavBar() {
-        if !DownloadManager.shared.items.isEmpty {
-            navigationItem.rightBarButtonItem = UIBarButtonItem(
-                title: "🗑️ Clear All",
-                style: .plain,
-                target: self,
-                action: #selector(confirmClearAllDownloads)
-            )
-        } else {
-            navigationItem.rightBarButtonItem = nil
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            title: "⚙️ Storage",
+            style: .plain,
+            target: self,
+            action: #selector(presentStorageOptions)
+        )
+    }
+
+    @objc private func presentStorageOptions() {
+        let torrentFiles = StorageManager.shared.getSavedTorrentFiles()
+        let torrentSpace = StorageManager.shared.formatBytes(StorageManager.shared.totalTorrentFilesSpace)
+        let totalDownloadsSpace = StorageManager.shared.formatBytes(StorageManager.shared.totalDownloadsSpace)
+
+        let sheet = UIAlertController(
+            title: "Downloads & Storage Options",
+            message: "Manage offline files on your iPad:\n• Video Files: \(totalDownloadsSpace)\n• Saved .torrent Files: \(torrentFiles.count) (\(torrentSpace))\n\nFile Location in Apple Files App:\nOn My iPad → Matnami → Downloads",
+            preferredStyle: .actionSheet
+        )
+
+        if !torrentFiles.isEmpty {
+            sheet.addAction(UIAlertAction(title: "🗑️ Clean .torrent Files (\(torrentFiles.count) files, \(torrentSpace))", style: .destructive) { [weak self] _ in
+                let deleted = StorageManager.shared.deleteAllTorrentFiles()
+                self?.updateStorageMeter()
+                self?.showAlert(title: "Torrent Files Deleted", message: "Successfully deleted \(deleted) .torrent files from Downloads folder.")
+            })
         }
+
+        if !DownloadManager.shared.items.isEmpty {
+            sheet.addAction(UIAlertAction(title: "🗑️ Delete All Video Downloads (\(totalDownloadsSpace))", style: .destructive) { [weak self] _ in
+                self?.confirmClearAllDownloads()
+            })
+        }
+
+        sheet.addAction(UIAlertAction(title: "📂 Where are files saved on iPad?", style: .default) { [weak self] _ in
+            self?.showAlert(
+                title: "Finding Files on iPad Air",
+                message: "1. Open the Apple 'Files' app on your iPad.\n2. Tap 'Locations' in the sidebar.\n3. Tap 'On My iPad'.\n4. Tap the 'Matnami' folder.\n5. Open 'Downloads'.\n\nYou can play, share, or delete any file directly there!"
+            )
+        })
+
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = self.view
+            popover.sourceRect = CGRect(x: self.view.bounds.midX, y: self.view.bounds.midY, width: 1, height: 1)
+            popover.permittedArrowDirections = []
+        }
+        present(sheet, animated: true)
     }
 
     @objc private func confirmClearAllDownloads() {
@@ -55,6 +93,12 @@ public final class DownloadsViewController: UIViewController, UITableViewDataSou
             self?.tableView.reloadData()
             self?.updateEmptyState()
         })
+        present(alert, animated: true)
+    }
+
+    private func showAlert(title: String, message: String) {
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default, handler: nil))
         present(alert, animated: true)
     }
 
