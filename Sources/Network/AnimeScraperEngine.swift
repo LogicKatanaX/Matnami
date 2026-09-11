@@ -9,7 +9,14 @@ public final class AnimeScraperEngine {
 
     private let session: URLSession
     private var sourceCache: [String: [VideoSource]] = [:]
+    private var torrentItemCache: [String: TorrentItem] = [:]
+    private var toshoItemCache: [String: ToshoItem] = [:]
     private let cacheLock = NSLock()
+
+    public func isTorrentSource(_ source: AnimeSourceConfig) -> Bool {
+        let base = source.baseURL.lowercased()
+        return base.contains("nyaa.si") || base.contains("animetosho.org")
+    }
 
     public func cacheEpisodeSources(for episodeId: String, sources: [VideoSource]) {
         cacheLock.lock()
@@ -68,6 +75,89 @@ public final class AnimeScraperEngine {
 
     // MARK: - 1. Fetch Catalog
     public func fetchCatalog(source: AnimeSourceConfig, page: Int = 1, completion: @escaping (Result<[Anime], Error>) -> Void) {
+        if source.baseURL.contains("animetosho") {
+            AnimeToshoClient.shared.fetchFeed(query: nil) { [weak self] result in
+                guard let self = self else { return }
+                switch result {
+                case .success(let items):
+                    var animeList: [Anime] = []
+                    self.cacheLock.lock()
+                    for item in items {
+                        let meta = TorrentTitleParser.parse(item.title)
+                        let animeId = "\(source.id)_\(item.infoHash ?? String(item.id))"
+                        self.toshoItemCache[animeId] = item
+                        let anime = Anime(
+                            id: animeId,
+                            title: meta.cleanTitle,
+                            coverURL: "",
+                            synopsis: "Release: \(item.title)\nSize: \(item.formattedSize)\nSeeders: \(item.seeders ?? 0)",
+                            score: "▲ \(item.seeders ?? 0) seeders",
+                            status: "\(item.formattedSize) • \(meta.resolution)",
+                            type: "\(meta.container) • \(meta.codec)",
+                            genres: [meta.audio, meta.resolution, "Anime"],
+                            detailURL: item.link,
+                            sourceId: source.id
+                        )
+                        animeList.append(anime)
+                    }
+                    self.cacheLock.unlock()
+                    DispatchQueue.main.async { completion(.success(animeList)) }
+                case .failure(let error):
+                    DispatchQueue.main.async { completion(.failure(error)) }
+                }
+            }
+            return
+        }
+
+        if source.baseURL.contains("nyaa.si") {
+            let pageStr = String(page)
+            let formatted = source.catalogPattern.replacingOccurrences(of: "{page}", with: pageStr)
+            guard let url = URL(string: formatted) else {
+                completion(.failure(NSError(domain: "AnimeScraper", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid catalog URL"])))
+                return
+            }
+
+            let request = makeURLRequest(url: url, useProxy: source.useProxy)
+            session.dataTask(with: request) { [weak self] data, _, error in
+                guard let self = self else { return }
+                if let error = error {
+                    DispatchQueue.main.async { completion(.failure(error)) }
+                    return
+                }
+                guard let data = data else {
+                    DispatchQueue.main.async {
+                        completion(.failure(NSError(domain: "AnimeScraper", code: 500, userInfo: [NSLocalizedDescriptionKey: "Empty RSS feed"])))
+                    }
+                    return
+                }
+
+                let items = NyaaRSSParser.parse(data: data)
+                var animeList: [Anime] = []
+                self.cacheLock.lock()
+                for item in items {
+                    let meta = TorrentTitleParser.parse(item.title)
+                    let animeId = "\(source.id)_\(item.infoHash.isEmpty ? String(abs(item.guid.hashValue)) : item.infoHash)"
+                    self.torrentItemCache[animeId] = item
+                    let anime = Anime(
+                        id: animeId,
+                        title: meta.cleanTitle,
+                        coverURL: "",
+                        synopsis: "Release: \(item.title)\nCategory: \(item.category)\nSize: \(item.size)\nPublished: \(item.pubDate)",
+                        score: "▲ \(item.seeders) seeders",
+                        status: "\(item.size) • \(meta.resolution)",
+                        type: "\(meta.container) • \(meta.codec)",
+                        genres: [meta.audio, meta.resolution, item.category],
+                        detailURL: item.guid,
+                        sourceId: source.id
+                    )
+                    animeList.append(anime)
+                }
+                self.cacheLock.unlock()
+                DispatchQueue.main.async { completion(.success(animeList)) }
+            }.resume()
+            return
+        }
+
         let pageStr = String(page)
         let formatted = source.catalogPattern.replacingOccurrences(of: "{page}", with: pageStr)
         guard let url = URL(string: formatted) else {
@@ -99,6 +189,92 @@ public final class AnimeScraperEngine {
 
     // MARK: - 2. Search Anime
     public func searchAnime(source: AnimeSourceConfig, query: String, completion: @escaping (Result<[Anime], Error>) -> Void) {
+        if source.baseURL.contains("animetosho") {
+            AnimeToshoClient.shared.fetchFeed(query: query) { [weak self] result in
+                guard let self = self else { return }
+                switch result {
+                case .success(let items):
+                    var animeList: [Anime] = []
+                    self.cacheLock.lock()
+                    for item in items {
+                        let meta = TorrentTitleParser.parse(item.title)
+                        let animeId = "\(source.id)_\(item.infoHash ?? String(item.id))"
+                        self.toshoItemCache[animeId] = item
+                        let anime = Anime(
+                            id: animeId,
+                            title: meta.cleanTitle,
+                            coverURL: "",
+                            synopsis: "Release: \(item.title)\nSize: \(item.formattedSize)\nSeeders: \(item.seeders ?? 0)",
+                            score: "▲ \(item.seeders ?? 0) seeders",
+                            status: "\(item.formattedSize) • \(meta.resolution)",
+                            type: "\(meta.container) • \(meta.codec)",
+                            genres: [meta.audio, meta.resolution, "Anime"],
+                            detailURL: item.link,
+                            sourceId: source.id
+                        )
+                        animeList.append(anime)
+                    }
+                    self.cacheLock.unlock()
+                    DispatchQueue.main.async { completion(.success(animeList)) }
+                case .failure(let error):
+                    DispatchQueue.main.async { completion(.failure(error)) }
+                }
+            }
+            return
+        }
+
+        if source.baseURL.contains("nyaa.si") {
+            guard let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+                completion(.failure(NSError(domain: "AnimeScraper", code: 400, userInfo: [NSLocalizedDescriptionKey: "Query encoding failed"])))
+                return
+            }
+            let formatted = source.searchPattern.replacingOccurrences(of: "{query}", with: encodedQuery)
+            guard let url = URL(string: formatted) else {
+                completion(.failure(NSError(domain: "AnimeScraper", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid search URL"])))
+                return
+            }
+
+            let request = makeURLRequest(url: url, useProxy: source.useProxy)
+            session.dataTask(with: request) { [weak self] data, _, error in
+                guard let self = self else { return }
+                if let error = error {
+                    DispatchQueue.main.async { completion(.failure(error)) }
+                    return
+                }
+                guard let data = data else {
+                    DispatchQueue.main.async {
+                        completion(.failure(NSError(domain: "AnimeScraper", code: 500, userInfo: [NSLocalizedDescriptionKey: "Empty search response"])))
+                    }
+                    return
+                }
+
+                let items = NyaaRSSParser.parse(data: data)
+                var animeList: [Anime] = []
+                self.cacheLock.lock()
+                for item in items {
+                    let meta = TorrentTitleParser.parse(item.title)
+                    let animeId = "\(source.id)_\(item.infoHash.isEmpty ? String(abs(item.guid.hashValue)) : item.infoHash)"
+                    self.torrentItemCache[animeId] = item
+                    let anime = Anime(
+                        id: animeId,
+                        title: meta.cleanTitle,
+                        coverURL: "",
+                        synopsis: "Release: \(item.title)\nCategory: \(item.category)\nSize: \(item.size)\nPublished: \(item.pubDate)",
+                        score: "▲ \(item.seeders) seeders",
+                        status: "\(item.size) • \(meta.resolution)",
+                        type: "\(meta.container) • \(meta.codec)",
+                        genres: [meta.audio, meta.resolution, item.category],
+                        detailURL: item.guid,
+                        sourceId: source.id
+                    )
+                    animeList.append(anime)
+                }
+                self.cacheLock.unlock()
+                DispatchQueue.main.async { completion(.success(animeList)) }
+            }.resume()
+            return
+        }
+
         guard let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
             completion(.failure(NSError(domain: "AnimeScraper", code: 400, userInfo: [NSLocalizedDescriptionKey: "Query encoding failed"])))
             return
@@ -241,6 +417,11 @@ public final class AnimeScraperEngine {
 
     // MARK: - 3. Fetch Anime Detail & Episodes
     public func fetchAnimeDetail(source: AnimeSourceConfig, anime: Anime, completion: @escaping (Result<(Anime, [Episode]), Error>) -> Void) {
+        if isTorrentSource(source) {
+            fetchTorrentAnimeDetail(source: source, anime: anime, completion: completion)
+            return
+        }
+
         guard let url = URL(string: anime.detailURL) else {
             completion(.failure(NSError(domain: "AnimeScraper", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid anime detail URL"])))
             return
@@ -437,10 +618,61 @@ public final class AnimeScraperEngine {
         }.resume()
     }
 
+    private func fetchTorrentAnimeDetail(source: AnimeSourceConfig, anime: Anime, completion: @escaping (Result<(Anime, [Episode]), Error>) -> Void) {
+        cacheLock.lock()
+        let torrentItem = torrentItemCache[anime.id]
+        let toshoItem = toshoItemCache[anime.id]
+        cacheLock.unlock()
+
+        let rawTitle = torrentItem?.title ?? toshoItem?.title ?? anime.title
+        let meta = TorrentTitleParser.parse(rawTitle)
+
+        // Query Kitsu for high-res official anime poster artwork and description
+        KitsuMetadataService.shared.fetchMetadata(for: meta.cleanTitle) { kitsuMeta in
+            let cover = (kitsuMeta?.posterURL != nil && !kitsuMeta!.posterURL!.isEmpty) ? kitsuMeta!.posterURL! : anime.coverURL
+            let synopsis = (kitsuMeta?.synopsis != nil && !kitsuMeta!.synopsis!.isEmpty) ? kitsuMeta!.synopsis! : anime.synopsis
+            let score = (kitsuMeta?.score != nil) ? "★ \(kitsuMeta!.score!)% • \(anime.score)" : anime.score
+
+            let updatedAnime = Anime(
+                id: anime.id,
+                title: meta.cleanTitle,
+                coverURL: cover,
+                synopsis: synopsis,
+                score: score,
+                status: anime.status,
+                type: anime.type,
+                genres: anime.genres,
+                detailURL: anime.detailURL,
+                sourceId: source.id,
+                totalEpisodes: 1
+            )
+
+            let epTitle = "\(rawTitle)"
+            let episode = Episode(
+                id: "\(anime.id)_ep_1",
+                animeId: anime.id,
+                number: meta.episodeString,
+                title: epTitle,
+                episodeURL: anime.detailURL,
+                uploadDate: torrentItem?.pubDate,
+                sourceId: source.id
+            )
+
+            DispatchQueue.main.async {
+                completion(.success((updatedAnime, [episode])))
+            }
+        }
+    }
+
     // MARK: - 4. Fetch Episode Video Sources & Resolvers
     public func fetchEpisodeSources(source: AnimeSourceConfig, episode: Episode, completion: @escaping (Result<[VideoSource], Error>) -> Void) {
         if let cached = getCachedEpisodeSources(for: episode.id), !cached.isEmpty {
             DispatchQueue.main.async { completion(.success(cached)) }
+            return
+        }
+
+        if isTorrentSource(source) {
+            resolveTorrentEpisodeSources(source: source, episode: episode, completion: completion)
             return
         }
 
@@ -713,6 +945,85 @@ public final class AnimeScraperEngine {
 
         _ = semaphore.wait(timeout: .now() + 5.0)
         return result
+    }
+
+    private func resolveTorrentEpisodeSources(source: AnimeSourceConfig, episode: Episode, completion: @escaping (Result<[VideoSource], Error>) -> Void) {
+        cacheLock.lock()
+        let torrentItem = torrentItemCache[episode.animeId]
+        let toshoItem = toshoItemCache[episode.animeId]
+        cacheLock.unlock()
+
+        var sources: [VideoSource] = []
+
+        // 1. Torrent Download (.torrent)
+        if let tURLStr = torrentItem?.torrentURL ?? toshoItem?.torrentURL, let tURL = URL(string: tURLStr) {
+            sources.append(VideoSource(
+                serverName: "⬇ Download .torrent File",
+                quality: .normal720p,
+                streamURL: tURL,
+                referer: source.baseURL,
+                isDirectDownload: true,
+                format: .torrent
+            ))
+        }
+
+        // 2. Magnet Link (P2P)
+        if let magnet = torrentItem?.magnetURI ?? toshoItem?.magnetURI, let mURL = URL(string: magnet) {
+            sources.append(VideoSource(
+                serverName: "🧲 Magnet Link (P2P)",
+                quality: .normal720p,
+                streamURL: mURL,
+                referer: "",
+                isDirectDownload: false,
+                format: .magnet
+            ))
+        }
+
+        // 3. Direct HTTP Mirror (if AnimeTosho)
+        if let tosho = toshoItem, let tURLStr = tosho.torrentURL, tURLStr.contains("storage.animetosho.org"), let mirrorURL = URL(string: tURLStr) {
+            sources.append(VideoSource(
+                serverName: "🌐 Direct AnimeTosho Storage Mirror",
+                quality: .high1080p,
+                streamURL: mirrorURL,
+                referer: "https://animetosho.org",
+                isDirectDownload: true,
+                format: .mkv
+            ))
+        }
+
+        // 4. Cloud Debrid (if configured in AppSettings)
+        let magnetURI = torrentItem?.magnetURI ?? toshoItem?.magnetURI ?? ""
+        if AppSettings.shared.debridProvider != .none && !AppSettings.shared.debridApiToken.isEmpty && !magnetURI.isEmpty {
+            DebridService.shared.resolveMagnetToDirectURL(magnetURI: magnetURI) { [weak self] result in
+                guard let self = self else { return }
+                switch result {
+                case .success(let debridURL):
+                    let debridSource = VideoSource(
+                        serverName: "⚡ Cloud Debrid Stream (\(AppSettings.shared.debridProvider.displayName))",
+                        quality: .high1080p,
+                        streamURL: debridURL,
+                        referer: "",
+                        isDirectDownload: true,
+                        format: .mp4
+                    )
+                    sources.insert(debridSource, at: 0)
+                case .failure(let error):
+                    print("AnimeScraperEngine: Debrid resolution error: \(error)")
+                }
+                self.cacheEpisodeSources(for: episode.id, sources: sources)
+                DispatchQueue.main.async { completion(.success(sources)) }
+            }
+            return
+        }
+
+        if !sources.isEmpty {
+            self.cacheEpisodeSources(for: episode.id, sources: sources)
+            DispatchQueue.main.async { completion(.success(sources)) }
+        } else {
+            DispatchQueue.main.async {
+                completion(.failure(NSError(domain: "AnimeScraper", code: 404, userInfo: [NSLocalizedDescriptionKey: "No torrent or magnet sources found"])))
+            }
+        }
     }
 }
 

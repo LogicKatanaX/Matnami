@@ -249,13 +249,48 @@ public final class DownloadsViewController: UIViewController, UITableViewDataSou
             return
         }
 
-        let playerVC = VideoPlayerViewController(
-            animeTitle: item.animeTitle,
-            episodeTitle: "Episode \(item.episodeNumber)",
-            mediaURL: localURL,
-            isOffline: true
+        let sheet = UIAlertController(
+            title: "\(item.animeTitle) - Ep \(item.episodeNumber)",
+            message: "Offline Playback & Sharing Options:",
+            preferredStyle: .actionSheet
         )
-        present(playerVC, animated: true)
+
+        sheet.addAction(UIAlertAction(title: "▶ Play in Matnami Player", style: .default) { [weak self] _ in
+            let playerVC = VideoPlayerViewController(
+                animeTitle: item.animeTitle,
+                episodeTitle: "Episode \(item.episodeNumber)",
+                mediaURL: localURL,
+                isOffline: true
+            )
+            self?.present(playerVC, animated: true)
+        })
+
+        sheet.addAction(UIAlertAction(title: "▶ Open in VLC for iOS", style: .default) { [weak self] _ in
+            guard let self = self else { return }
+            TorrentActionHelper.shared.openInVLC(fileURL: localURL, from: self)
+        })
+
+        sheet.addAction(UIAlertAction(title: "📤 Share / Export to Files", style: .default) { [weak self] _ in
+            guard let self = self else { return }
+            TorrentActionHelper.shared.presentFileShareSheet(fileURL: localURL, from: self)
+        })
+
+        sheet.addAction(UIAlertAction(title: "🗑️ Delete Download", style: .destructive) { [weak self] _ in
+            DownloadManager.shared.deleteDownload(id: item.id)
+            self?.updateNavBar()
+            self?.updateStorageMeter()
+            self?.tableView.reloadData()
+            self?.updateEmptyState()
+        })
+
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = self.view
+            popover.sourceRect = CGRect(x: self.view.bounds.midX, y: self.view.bounds.midY, width: 1, height: 1)
+            popover.permittedArrowDirections = []
+        }
+        present(sheet, animated: true)
     }
 
     // Swipe to delete

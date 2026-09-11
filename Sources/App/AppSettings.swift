@@ -10,6 +10,9 @@ public final class AppSettings {
     private let keyOTAUrl = "com.matnami.pref_ota_url"
     private let keyProxyUrl = "com.matnami.pref_proxy_url"
     private let keyProxyStreams = "com.matnami.pref_proxy_streams"
+    private let keyDebridProvider = "com.matnami.pref_debrid_provider"
+    private let keyDebridToken = "com.matnami.pref_debrid_token"
+    private let keyPreferVLC = "com.matnami.pref_prefer_vlc"
 
     /// Default Cloudflare Worker endpoint (verified active and online)
     public static let defaultProxyBase = "https://animemovie.santamrelax.workers.dev/?url="
@@ -82,6 +85,40 @@ public final class AppSettings {
         return !proxyBaseUrl.isEmpty && proxyBaseUrl.contains("http")
     }
 
+    /// Debrid Provider for Cloud Torrent-to-HTTP Streaming
+    public var debridProvider: DebridProvider {
+        get {
+            guard let raw = defaults.string(forKey: keyDebridProvider),
+                  let p = DebridProvider(rawValue: raw) else {
+                return .none
+            }
+            return p
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: keyDebridProvider)
+        }
+    }
+
+    /// Debrid API token (Torbox / Real-Debrid)
+    public var debridApiToken: String {
+        get {
+            return defaults.string(forKey: keyDebridToken) ?? ""
+        }
+        set {
+            defaults.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines), forKey: keyDebridToken)
+        }
+    }
+
+    /// Whether to prefer opening video playback in VLC for iOS (recommended for MKV/HEVC on iPad Air 1)
+    public var preferVLC: Bool {
+        get {
+            return defaults.bool(forKey: keyPreferVLC)
+        }
+        set {
+            defaults.set(newValue, forKey: keyPreferVLC)
+        }
+    }
+
     /// Resets all user settings back to initial factory defaults
     public func resetToDefaults() {
         defaults.removeObject(forKey: keyQuality)
@@ -89,11 +126,12 @@ public final class AppSettings {
         defaults.removeObject(forKey: keyProxyStreams)
         defaults.removeObject(forKey: keyOTAUrl)
         defaults.removeObject(forKey: keyProxyUrl)
+        defaults.removeObject(forKey: keyDebridProvider)
+        defaults.removeObject(forKey: keyDebridToken)
+        defaults.removeObject(forKey: keyPreferVLC)
     }
 }
 
 public extension Notification.Name {
     static let appDidReset = Notification.Name("com.matnami.appDidReset")
 }
-
-

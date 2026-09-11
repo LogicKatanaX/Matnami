@@ -6,7 +6,7 @@ public final class SourceManager {
     public private(set) var sources: [AnimeSourceConfig] = []
     public var activeSource: AnimeSourceConfig?
 
-    private let userDefaultsKey = "com.matnami.saved_sources_v2"
+    private let userDefaultsKey = "com.matnami.saved_sources_v3"
     private let activeSourceIdKey = "com.matnami.active_source_id"
 
     private init() {
@@ -25,47 +25,87 @@ public final class SourceManager {
             // 2. Fallback to bundled sources.json
             self.sources = bundleList
         } else {
-            // 3. Fallback hardcoded defaults (CartoonsArea & HentaiFreak)
+            // 3. Fallback hardcoded defaults (Nyaa & AnimeTosho)
             self.sources = [
                 AnimeSourceConfig(
-                    id: "cartoonsarea",
-                    name: "CartoonsArea",
-                    baseURL: "https://www.cartoonsarea.cc",
-                    catalogPattern: "https://www.cartoonsarea.cc/Japanese-Dubbed-Videos/A-Subbed-Series/",
-                    searchPattern: "https://www.cartoonsarea.cc/?s={query}",
-                    cardSelector: ".directory-list a[href*='-Series/']",
-                    linkSelector: "a[href]",
-                    titleSelector: "h2, h3, a",
-                    coverSelector: "img",
+                    id: "nyaa_en",
+                    name: "Nyaa (Anime - English)",
+                    baseURL: "https://nyaa.si",
+                    catalogPattern: "https://nyaa.si/?page=rss&c=1_2",
+                    searchPattern: "https://nyaa.si/?page=rss&q={query}&c=1_2",
+                    cardSelector: "item",
+                    linkSelector: "link",
+                    titleSelector: "title",
+                    coverSelector: "",
                     scoreSelector: nil,
-                    synopsisSelector: ".desc, .description, .storyline",
-                    episodeListSelector: "a[href*='Season-'], a[href*='Episode-'], a[href*='-Video/']",
-                    episodeLinkSelector: "a",
-                    episodeTitleSelector: "a",
+                    synopsisSelector: "description",
+                    episodeListSelector: "item",
+                    episodeLinkSelector: "link",
+                    episodeTitleSelector: "title",
                     playerIframeSelector: nil,
-                    serverItemSelector: "a[href*='.mp4'], a[href*='/USER-DATA/']",
+                    serverItemSelector: nil,
                     ajaxAction: nil,
                     useProxy: false
                 ),
                 AnimeSourceConfig(
-                    id: "hentaifreak",
-                    name: "HentaiFreak",
-                    baseURL: "https://hentaifreak.org",
-                    catalogPattern: "https://hentaifreak.org/hentai/",
-                    searchPattern: "https://hentaifreak.org/?s={query}",
-                    cardSelector: ".post, article.post",
-                    linkSelector: "a[href*='-video/'], a[href]",
-                    titleSelector: "h2 a, a[rel='bookmark'], a[title], h2",
-                    coverSelector: "img",
+                    id: "animetosho",
+                    name: "AnimeTosho (Torrents & Mirrors)",
+                    baseURL: "https://animetosho.org",
+                    catalogPattern: "https://feed.animetosho.org/json",
+                    searchPattern: "https://feed.animetosho.org/json?q={query}",
+                    cardSelector: "",
+                    linkSelector: "",
+                    titleSelector: "",
+                    coverSelector: "",
                     scoreSelector: nil,
-                    synopsisSelector: ".entry-content p, .desc",
-                    episodeListSelector: "video, source, a[href*='.mp4']",
-                    episodeLinkSelector: "a",
-                    episodeTitleSelector: "a",
+                    synopsisSelector: nil,
+                    episodeListSelector: "",
+                    episodeLinkSelector: "",
+                    episodeTitleSelector: "",
                     playerIframeSelector: nil,
-                    serverItemSelector: "source[src], video[src], a[href*='.mp4']",
+                    serverItemSelector: nil,
                     ajaxAction: nil,
-                    useProxy: true
+                    useProxy: false
+                ),
+                AnimeSourceConfig(
+                    id: "nyaa_all",
+                    name: "Nyaa (All Anime)",
+                    baseURL: "https://nyaa.si",
+                    catalogPattern: "https://nyaa.si/?page=rss&c=1_0",
+                    searchPattern: "https://nyaa.si/?page=rss&q={query}&c=1_0",
+                    cardSelector: "item",
+                    linkSelector: "link",
+                    titleSelector: "title",
+                    coverSelector: "",
+                    scoreSelector: nil,
+                    synopsisSelector: "description",
+                    episodeListSelector: "item",
+                    episodeLinkSelector: "link",
+                    episodeTitleSelector: "title",
+                    playerIframeSelector: nil,
+                    serverItemSelector: nil,
+                    ajaxAction: nil,
+                    useProxy: false
+                ),
+                AnimeSourceConfig(
+                    id: "sukebei",
+                    name: "Sukebei (18+ NSFW)",
+                    baseURL: "https://sukebei.nyaa.si",
+                    catalogPattern: "https://sukebei.nyaa.si/?page=rss&c=1_1",
+                    searchPattern: "https://sukebei.nyaa.si/?page=rss&q={query}&c=1_1",
+                    cardSelector: "item",
+                    linkSelector: "link",
+                    titleSelector: "title",
+                    coverSelector: "",
+                    scoreSelector: nil,
+                    synopsisSelector: "description",
+                    episodeListSelector: "item",
+                    episodeLinkSelector: "link",
+                    episodeTitleSelector: "title",
+                    playerIframeSelector: nil,
+                    serverItemSelector: nil,
+                    ajaxAction: nil,
+                    useProxy: false
                 )
             ]
         }

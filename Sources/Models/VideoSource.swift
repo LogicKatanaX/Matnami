@@ -19,6 +19,9 @@ public enum VideoQuality: String, Codable, CaseIterable {
 public enum VideoFormat: String, Codable {
     case mp4 = "mp4"
     case hls = "m3u8"
+    case mkv = "mkv"
+    case torrent = "torrent"
+    case magnet = "magnet"
 }
 
 public struct VideoSource: Codable, Equatable {

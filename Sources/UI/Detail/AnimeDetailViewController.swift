@@ -268,9 +268,19 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
             message: "Offline download is ready on this iPad.",
             preferredStyle: .actionSheet
         )
-        sheet.addAction(UIAlertAction(title: "▶ Play Offline", style: .default) { [weak self] _ in
+        sheet.addAction(UIAlertAction(title: "▶ Play in Matnami Player", style: .default) { [weak self] _ in
             self?.playOfflineEpisode(episode)
         })
+        if let localURL = DownloadManager.shared.localPlaybackURL(for: episode.id) {
+            sheet.addAction(UIAlertAction(title: "▶ Open in VLC for iOS", style: .default) { [weak self] _ in
+                guard let self = self else { return }
+                TorrentActionHelper.shared.openInVLC(fileURL: localURL, from: self)
+            })
+            sheet.addAction(UIAlertAction(title: "📤 Share / Export to Files", style: .default) { [weak self] _ in
+                guard let self = self else { return }
+                TorrentActionHelper.shared.presentFileShareSheet(fileURL: localURL, from: self)
+            })
+        }
         sheet.addAction(UIAlertAction(title: "▶ Stream Online", style: .default) { [weak self] _ in
             self?.resolveSources(for: episode) { sources in
                 self?.presentStreamingQualityPicker(sources: sources, episode: episode)
@@ -397,19 +407,63 @@ public final class AnimeDetailViewController: UIViewController, UITableViewDataS
     }
 
     private func presentPlayOrDownloadPicker(sources: [VideoSource], episode: Episode) {
+        let torrentSource = sources.first(where: { $0.format == .torrent })
+        let magnetSource = sources.first(where: { $0.format == .magnet })
+        let streamableSource = sources.first(where: { $0.format == .mp4 || $0.format == .hls })
+        let mirrorSource = sources.first(where: { $0.format == .mkv })
+
         let sheet = UIAlertController(
             title: episode.title,
-            message: "Choose playback method for this episode:",
+            message: "Playback & Download Options for iPad:",
             preferredStyle: .actionSheet
         )
 
-        sheet.addAction(UIAlertAction(title: "▶ Play Online (Instant Stream)", style: .default) { [weak self] _ in
-            self?.presentStreamingQualityPicker(sources: sources, episode: episode)
-        })
+        // 1. Instant Online Playback (Debrid or direct stream)
+        if let stream = streamableSource {
+            sheet.addAction(UIAlertAction(title: "▶ Play Online (Instant Stream)", style: .default) { [weak self] _ in
+                self?.presentStreamingQualityPicker(sources: sources.filter { $0.format == .mp4 || $0.format == .hls }, episode: episode)
+            })
+            sheet.addAction(UIAlertAction(title: "⬇ Download Video (Offline)", style: .default) { [weak self] _ in
+                self?.presentDownloadQualityPicker(sources: sources.filter { $0.format == .mp4 || $0.format == .hls }, episode: episode)
+            })
+        }
 
-        sheet.addAction(UIAlertAction(title: "⬇ Download to iPad (Offline)", style: .default) { [weak self] _ in
-            self?.presentDownloadQualityPicker(sources: sources, episode: episode)
-        })
+        // 2. Direct HTTP Mirror (AnimeTosho)
+        if let mirror = mirrorSource {
+            sheet.addAction(UIAlertAction(title: "⬇ Download Video File (Mirror HTTP)", style: .default) { [weak self] _ in
+                guard let self = self else { return }
+                DownloadManager.shared.startDownload(anime: self.anime, episode: episode, videoSource: mirror)
+                self.updateNavBarButtons()
+                self.tableView.reloadData()
+            })
+        }
+
+        // 3. Save .torrent to Files App
+        if let tSrc = torrentSource {
+            sheet.addAction(UIAlertAction(title: "⬇ Save .torrent to Files App", style: .default) { [weak self] _ in
+                guard let self = self else { return }
+                let safeTitle = self.anime.title.replacingOccurrences(of: " ", with: "_")
+                TorrentActionHelper.shared.downloadTorrentFile(from: tSrc.streamURL, fileName: "\(safeTitle)_Ep_\(episode.number).torrent", viewController: self)
+            })
+        }
+
+        // 4. Copy Magnet Link
+        if let mSrc = magnetSource {
+            sheet.addAction(UIAlertAction(title: "🧲 Copy Magnet Link", style: .default) { [weak self] _ in
+                guard let self = self else { return }
+                TorrentActionHelper.shared.copyMagnet(uri: mSrc.streamURL.absoluteString, from: self)
+            })
+        }
+
+        // If it's a standard web source without torrents, fallback to standard stream / download
+        if torrentSource == nil && magnetSource == nil && streamableSource == nil && mirrorSource == nil {
+            sheet.addAction(UIAlertAction(title: "▶ Play Online (Instant Stream)", style: .default) { [weak self] _ in
+                self?.presentStreamingQualityPicker(sources: sources, episode: episode)
+            })
+            sheet.addAction(UIAlertAction(title: "⬇ Download to iPad (Offline)", style: .default) { [weak self] _ in
+                self?.presentDownloadQualityPicker(sources: sources, episode: episode)
+            })
+        }
 
         sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
 

@@ -19,16 +19,17 @@ public final class SettingsViewController: UITableViewController {
 
     // MARK: - Table view data source
     public override func numberOfSections(in tableView: UITableView) -> Int {
-        return 5
+        return 6
     }
 
     public override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch section {
         case 0: return qualityOptions.count // Preferred Video Quality
-        case 1: return 3                    // Storage & Deletion Management
-        case 2: return 5                    // Anime Sources & Custom Websites
-        case 3: return 4                    // Cloudflare Edge Proxy (ISP Bypass)
-        case 4: return 2                    // Device & Architecture Info
+        case 1: return 4                    // Torrent, Cloud Debrid & Player
+        case 2: return 3                    // Storage & Deletion Management
+        case 3: return 5                    // Anime Sources & Custom Websites
+        case 4: return 4                    // Cloudflare Edge Proxy (ISP Bypass)
+        case 5: return 2                    // Device & Architecture Info
         default: return 0
         }
     }
@@ -36,10 +37,11 @@ public final class SettingsViewController: UITableViewController {
     public override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         switch section {
         case 0: return "Preferred Video Quality"
-        case 1: return "Storage & Deletion Management"
-        case 2: return "Anime Sources & Custom Websites"
-        case 3: return "Cloudflare Edge Proxy (ISP Bypass)"
-        case 4: return "Device & Architecture"
+        case 1: return "Torrent, Cloud Debrid & Player"
+        case 2: return "Storage & Deletion Management"
+        case 3: return "Anime Sources & Custom Websites"
+        case 4: return "Cloudflare Edge Proxy (ISP Bypass)"
+        case 5: return "Device & Architecture"
         default: return nil
         }
     }
@@ -70,6 +72,29 @@ public final class SettingsViewController: UITableViewController {
 
         case 1:
             if indexPath.row == 0 {
+                cell.textLabel?.text = "Cloud Debrid Provider"
+                cell.detailTextLabel?.text = AppSettings.shared.debridProvider.displayName
+                cell.accessoryType = .disclosureIndicator
+            } else if indexPath.row == 1 {
+                cell.textLabel?.text = "Debrid API Token"
+                cell.detailTextLabel?.text = AppSettings.shared.debridApiToken.isEmpty ? "Tap to enter" : "Configured ✓"
+                cell.detailTextLabel?.textColor = AppSettings.shared.debridApiToken.isEmpty ? AppTheme.textSecondary : AppTheme.success
+                cell.accessoryType = .disclosureIndicator
+            } else if indexPath.row == 2 {
+                cell.textLabel?.text = "Default Video Player"
+                let vlc = AppSettings.shared.preferVLC
+                cell.detailTextLabel?.text = vlc ? "VLC for iOS" : "Matnami Player"
+                cell.detailTextLabel?.textColor = vlc ? AppTheme.primaryAccent : AppTheme.textSecondary
+                cell.accessoryType = .disclosureIndicator
+            } else {
+                cell.textLabel?.text = "🚀 Launch VLC for iOS App"
+                cell.detailTextLabel?.text = "vlc://"
+                cell.textLabel?.textColor = AppTheme.primaryAccent
+                cell.accessoryType = .disclosureIndicator
+            }
+
+        case 2:
+            if indexPath.row == 0 {
                 let bytes = StorageManager.shared.totalDownloadsSpace
                 cell.textLabel?.text = "Delete All Offline Downloads"
                 cell.detailTextLabel?.text = StorageManager.shared.formatBytes(bytes)
@@ -86,7 +111,7 @@ public final class SettingsViewController: UITableViewController {
                 cell.detailTextLabel?.text = "Factory State"
             }
 
-        case 2:
+        case 3:
             if indexPath.row == 0 {
                 cell.textLabel?.text = "Active Source"
                 cell.detailTextLabel?.text = SourceManager.shared.activeSource?.name ?? "None"
@@ -112,7 +137,7 @@ public final class SettingsViewController: UITableViewController {
                 cell.accessoryType = .disclosureIndicator
             }
 
-        case 3:
+        case 4:
             if indexPath.row == 0 {
                 cell.textLabel?.text = "Custom Worker Proxy URL"
                 let current = AppSettings.shared.proxyBaseUrl
@@ -135,7 +160,7 @@ public final class SettingsViewController: UITableViewController {
                 cell.accessoryType = .none
             }
 
-        case 4:
+        case 5:
             if indexPath.row == 0 {
                 cell.textLabel?.text = "Hardware Target"
                 cell.detailTextLabel?.text = "iPad Air 1 (Apple A7 • 1GB RAM)"
@@ -161,6 +186,18 @@ public final class SettingsViewController: UITableViewController {
 
         case 1:
             if indexPath.row == 0 {
+                promptSelectDebridProvider(from: indexPath)
+            } else if indexPath.row == 1 {
+                promptEditDebridToken()
+            } else if indexPath.row == 2 {
+                AppSettings.shared.preferVLC.toggle()
+                tableView.reloadRows(at: [indexPath], with: .none)
+            } else {
+                launchVLCApp()
+            }
+
+        case 2:
+            if indexPath.row == 0 {
                 confirmClearDownloads()
             } else if indexPath.row == 1 {
                 clearCaches()
@@ -168,7 +205,7 @@ public final class SettingsViewController: UITableViewController {
                 confirmResetApplication()
             }
 
-        case 2:
+        case 3:
             if indexPath.row == 0 {
                 promptSelectSource(from: indexPath)
             } else if indexPath.row == 1 {
@@ -181,7 +218,7 @@ public final class SettingsViewController: UITableViewController {
                 promptEditOTAUrl()
             }
 
-        case 3:
+        case 4:
             if indexPath.row == 0 {
                 promptEditProxyUrl()
             } else if indexPath.row == 1 {
@@ -192,7 +229,7 @@ public final class SettingsViewController: UITableViewController {
             } else {
                 AppSettings.shared.proxyBaseUrl = AppSettings.defaultProxyBase
                 AppSettings.shared.useProxyForStreams = false
-                tableView.reloadSections(IndexSet(integer: 3), with: .none)
+                tableView.reloadSections(IndexSet(integer: 4), with: .none)
                 showAlert(title: "Proxy Reset", message: "Worker proxy restored to default endpoint.")
             }
 
@@ -201,6 +238,62 @@ public final class SettingsViewController: UITableViewController {
     }
 
     // MARK: - Actions
+    private func promptSelectDebridProvider(from indexPath: IndexPath) {
+        let alert = UIAlertController(
+            title: "Select Cloud Debrid Provider",
+            message: "Cloud debrid instantly caches torrents on 10 Gbps servers and converts magnets to direct high-speed HTTP streams on iPad.",
+            preferredStyle: .actionSheet
+        )
+        for provider in DebridProvider.allCases {
+            let mark = (provider == AppSettings.shared.debridProvider) ? " ✓" : ""
+            alert.addAction(UIAlertAction(title: "\(provider.displayName)\(mark)", style: .default) { [weak self] _ in
+                AppSettings.shared.debridProvider = provider
+                self?.tableView.reloadSections(IndexSet(integer: 1), with: .none)
+            })
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+        if let popover = alert.popoverPresentationController {
+            let cell = tableView.cellForRow(at: indexPath)
+            popover.sourceView = cell ?? view
+            popover.sourceRect = cell?.bounds ?? CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
+        }
+        present(alert, animated: true)
+    }
+
+    private func promptEditDebridToken() {
+        let current = AppSettings.shared.debridApiToken
+        let providerName = AppSettings.shared.debridProvider.displayName
+        let alert = UIAlertController(
+            title: "\(providerName) API Token",
+            message: "Paste your API token / key from your account dashboard to enable 1-click cloud streaming and downloads.",
+            preferredStyle: .alert
+        )
+        alert.addTextField { tf in
+            tf.placeholder = "API Token / Key"
+            tf.text = current
+            tf.clearButtonMode = .whileEditing
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak self] _ in
+            let text = alert.textFields?.first?.text ?? ""
+            AppSettings.shared.debridApiToken = text
+            self?.tableView.reloadSections(IndexSet(integer: 1), with: .none)
+        })
+        present(alert, animated: true)
+    }
+
+    private func launchVLCApp() {
+        if let url = URL(string: "vlc://"), UIApplication.shared.canOpenURL(url) {
+            if #available(iOS 10.0, *) {
+                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+            } else {
+                UIApplication.shared.openURL(url)
+            }
+        } else {
+            showAlert(title: "VLC Not Installed", message: "VLC for iOS is not installed.\n\nYou can install it via AltStore or Sideloadly to enjoy hardware-accelerated 10-bit MKV playback on your iPad Air 1.")
+        }
+    }
+
     private func confirmClearDownloads() {
         let count = DownloadManager.shared.items.count
         let space = StorageManager.shared.formatBytes(StorageManager.shared.totalDownloadsSpace)
